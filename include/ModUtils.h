@@ -112,7 +112,7 @@ public:
 std::string ULog::FileName = "unknown_module.log";
 bool ULog::bShowTime = true;
 
-HMODULE GetBaseModule()
+inline HMODULE GetBaseModule(DWORD processId = 0)
 {
     static HMODULE hModule = 0;
 
@@ -122,7 +122,12 @@ HMODULE GetBaseModule()
         return hModule;
     }
 
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, GetCurrentProcessId());
+    if (processId == 0)
+    {
+        processId = GetCurrentProcessId();
+    }
+
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
     if (!hProcess)
     {
         return 0;
@@ -149,12 +154,12 @@ HMODULE GetBaseModule()
     return hModule;
 }
 
-PVOID GetRelativeAddress(PVOID absAddr)
+inline PVOID GetRelativeAddress(PVOID absAddr)
 {
     return PVOID(UINT_PTR(absAddr) - UINT_PTR(GetBaseModule()));
 }
 
-std::vector<uint16_t> StringtoScanPattern(std::string patternString)
+inline std::vector<uint16_t> StringtoScanPattern(std::string patternString)
 {
     std::vector<uint16_t> out;
     patternString.erase(std::remove_if(patternString.begin(), patternString.end(), ::isspace), patternString.end());
@@ -176,7 +181,7 @@ std::vector<uint16_t> StringtoScanPattern(std::string patternString)
     return out;
 }
 
-std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t> pattern, bool bScanAllModules = false, size_t MaxMatches = 0)
+inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t> pattern, bool bScanAllModules = false, size_t MaxMatches = 0)
 {
     if (!lpOptBase)
     {
@@ -278,7 +283,7 @@ std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t> patte
 }
 
 // Find the target address of a call instruction
-LPVOID FindCallTarget(LPVOID pOptBase, std::vector<uint16_t> pattern, int offset = 0, bool bScanAllModules = false)
+inline LPVOID FindCallTarget(LPVOID pOptBase, std::vector<uint16_t> pattern, int offset = 0, bool bScanAllModules = false)
 {
     std::vector<LPVOID> pScan = MemPatternScan(pOptBase, pattern, bScanAllModules, 1);
     if (pScan.size() && pScan[0])
@@ -298,13 +303,45 @@ LPVOID FindCallTarget(LPVOID pOptBase, std::vector<uint16_t> pattern, int offset
 }
 
 // Find the target address of a call instruction
-LPVOID FindCallTarget(LPVOID lpOptBase, std::string pattern, int offset = 0, bool bScanAllModules = false)
+inline LPVOID FindCallTarget(LPVOID lpOptBase, std::string pattern, int offset = 0, bool bScanAllModules = false)
 {
     return FindCallTarget(lpOptBase, StringtoScanPattern(pattern), offset, bScanAllModules);
 }
 
+class UToggleable
+{
+protected:
+    std::mutex Mutex;
+    std::atomic<bool> bEnabled;
+    virtual void EnableImpl();
+    virtual void DisableImpl();
+public:
+    void Enable()
+    {
+        std::lock_guard<std::mutex> lock(Mutex);
+        if (!bEnabled.load())
+        {
+            EnableImpl();
+            bEnabled.store(true);
+        }
+    }
+    void Disable()
+    {
+        std::lock_guard<std::mutex> lock(Mutex);
+        if (!bEnabled.load())
+        {
+            DisableImpl();
+            bEnabled.store(false);
+        }
+    }
+    void Toggle()
+    {
+        bEnabled.load() ? Disable() : Enable();
+    }
+};
+
 // MinHook wrapper class
-class UMinHook
+class UMinHook : public UToggleable
 {
     enum EError
     {
@@ -333,7 +370,7 @@ class UMinHook
 
         if (bEnableImmediately)
         {
-            MH_QueueEnableHook(pTarget);
+            Enable();
         }
     }
     
@@ -355,9 +392,21 @@ public:
         InitCommon(bEnableImmediately);
     }
 
-    UMinHook(std::string ID, std::string pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
     {
-        UMinHook(ID, StringtoScanPattern(pattern), pDetour, ppTrampoline, bEnableImmediately);
+        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
+        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
+        if (!scan.empty())
+        {
+            pTarget = scan[0];
+            MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
+            Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+        }
+        else
+        {
+            Error = PATTERN_NOT_FOUND;
+        }
+        InitCommon(bEnableImmediately);
     }
 
     UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
@@ -375,27 +424,27 @@ public:
         InitCommon(bEnableImmediately);
     }
 
-    static void Commit()
-    {
-        MH_ApplyQueued();
-    }
+    //static void Commit()
+    //{
+    //    MH_ApplyQueued();
+    //}
 
-    void QueueEnable()
-    {
-        MH_QueueEnableHook(pTarget);
-    }
+    //void QueueEnable()
+    //{
+    //    MH_QueueEnableHook(pTarget);
+    //}
 
-    void QueueDisable()
-    {
-        MH_QueueDisableHook(pTarget);
-    }
+    //void QueueDisable()
+    //{
+    //    MH_QueueDisableHook(pTarget);
+    //}
 
-    void Enable()
+    virtual void EnableImpl() override
     {
         MH_EnableHook(pTarget);
     }
 
-    void Disable()
+    virtual void DisableImpl() override
     {
         MH_DisableHook(pTarget);
     }
@@ -417,7 +466,7 @@ public:
 };
 
 template <size_t bufferSize = 1000>
-std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr)
+inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr)
 {
     CHAR buffer[bufferSize];
     func(hModule, buffer, bufferSize);
@@ -425,7 +474,7 @@ std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule
 }
 
 template <size_t bufferSize = 1000>
-std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
+inline std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
 {
     CHAR buffer[bufferSize];
     func(bufferSize, buffer);
@@ -433,14 +482,14 @@ std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
 }
 
 template <size_t bufferSize = 1000>
-std::string GetWinAPIString(UINT(WINAPI*func)(LPSTR, UINT))
+inline std::string GetWinAPIString(UINT(WINAPI*func)(LPSTR, UINT))
 {
     CHAR buffer[bufferSize];
     func(buffer, bufferSize);
     return std::string(buffer);
 }
 
-std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
+inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
 {
     std::string filename = path;
     size_t pos;
@@ -460,13 +509,13 @@ std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
     return filename;
 }
 
-std::string GetDLLName(HMODULE hModule = nullptr)
+inline std::string GetDLLName(HMODULE hModule = nullptr)
 {
     return GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, hModule));
 }
 
 template <typename T = void>
-T* PtrByteOffset(void* p, int64_t offset)
+inline T* PtrByteOffset(void* p, int64_t offset)
 {
     return reinterpret_cast<T*>(reinterpret_cast<char*>(p) + offset);
 }
