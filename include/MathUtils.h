@@ -37,6 +37,15 @@ inline float RelativeOffsetAlpha(glm::vec3 offset, float max_distance)
 }
 
 template<typename T>
+inline T pow2(T x) { return x * x; }
+
+template<typename T>
+inline T pow3(T x) { return x * x * x; }
+
+template<typename T>
+inline T pow4(T x) { return x * x * x * x; }
+
+template<typename T>
 inline T safediv(T x, T y) { return (x == 0 || y == 0) ? 0 : x / y; }
 
 template<typename T>
@@ -126,6 +135,44 @@ inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> 
     }
 
     glm::vec<L, T, Q> d = delta * clamp(deltaTime * speed, 0.f, 1.f);
+    return current + d;
+}
+
+//template<glm::length_t L, typename T, glm::qualifier Q>
+//inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, glm::vec<L, T, Q> inout_delta, float speed, float deltaTime, float minDistance = 0.0001f)
+//{
+//    if (speed <= 0.f)
+//    {
+//        return target;
+//    }
+//
+//    glm::vec<L, T, Q> delta = (target - current);
+//    if (glm::length(delta) <= minDistance)
+//    {
+//        return target;
+//    }
+//
+//    glm::vec<L, T, Q> d = delta * clamp(deltaTime * speed, 0.f, 1.f);
+//    d = ClampVecLength(d, glm::length(inout_delta) * 2.f);
+//    inout_delta = d;
+//    return current + d;
+//}
+
+template<glm::length_t L, typename T, glm::qualifier Q>
+inline glm::vec<L, T, Q> InterpToVConstant(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = 0.0001f)
+{
+    if (speed <= 0.f)
+    {
+        return target;
+    }
+
+    glm::vec<L, T, Q> delta = (target - current);
+    if (glm::length(delta) <= minDistance)
+    {
+        return target;
+    }
+
+    glm::vec<L, T, Q> d = glm::normalize(delta) * clamp(deltaTime * speed, 0.f, 1.f);
     return current + d;
 }
 
@@ -242,6 +289,8 @@ private:
     float Current = 0;
 
 public:
+    float (*Easing)(float) = EaseOutCubic;
+
     FDynamicTargetBlend(T source = T(0), float duration = 1)
         : Source(source), Duration(duration)
     {}
@@ -264,9 +313,13 @@ public:
         Reset(source);
     }
 
-    T Update(T target, float deltaTime)
+    T Update(T target, float deltaTime, float alphaOverride = -1.f)
     {
         Current += deltaTime;
-        return lerp(Source, target, EaseOutCubic(saturate(safediv(Current, Duration))));
+        if (alphaOverride >= 0.f)
+        {
+            return lerp(Source, target, alphaOverride);
+        }
+        return lerp(Source, target, saturate(Easing(saturate(safediv(Current, Duration)))));
     }
 };
