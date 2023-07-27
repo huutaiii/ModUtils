@@ -19,9 +19,13 @@ class ULog
     FILE* file = nullptr;
     std::mutex file_mtx;
 
-    ULog(const ULog&) = delete;
+    inline ULog(const ULog&) = delete;
 
-    ULog(const char* filename) {
+    inline ULog(const char* filename) {
+        if (!filename || !strlen(filename))
+        {
+            return;
+        }
         std::lock_guard<std::mutex> lock(file_mtx);
         if (!file)
         {
@@ -34,7 +38,7 @@ class ULog
         }
     }
 
-    ~ULog() {
+    inline ~ULog() {
         //if (file)
         //{
         //    fclose(file);
@@ -47,7 +51,7 @@ public:
     static std::string FileName;
     static bool bShowTime;
 
-    static ULog& Get()
+    inline static ULog& Get()
     {
         // Use a pointer to avoid calling the copy constructor
         static ULog *instance = new ULog(FileName.c_str());
@@ -57,7 +61,7 @@ public:
 
     bool bFirst = true;
 
-    void println(const char* fmt, va_list args)
+    inline void println(const char* fmt, va_list args)
     {
         //if (bFirst)
         //{
@@ -87,7 +91,7 @@ public:
         }
     }
 
-    void println(const char* fmt, ...)
+    inline void println(const char* fmt, ...)
     {
         va_list args;
         va_start(args, fmt);
@@ -96,21 +100,21 @@ public:
     }
 
 #ifdef _DEBUG
-    void dprintln(const char* fmt, ...)
+    inline void dprintln(const char* fmt, ...)
     {
-        std::string dfmt = "[debug] " + std::string(fmt);
+        std::string dfmt = "[DEBUG] " + std::string(fmt);
         va_list args;
         va_start(args, fmt);
         println(dfmt.c_str(), args);
         va_end(args);
     }
 #else
-    void dprintln(const char* fmt, ...) {}
+    inline void dprintln(const char* fmt, ...) {}
 #endif
 };
 
-std::string ULog::FileName = "unknown_module.log";
-bool ULog::bShowTime = true;
+//std::string ULog::FileName = "unknown_module.log";
+//bool ULog::bShowTime = true;
 
 inline HMODULE GetBaseModule(DWORD processId = 0)
 {
@@ -152,6 +156,27 @@ inline HMODULE GetBaseModule(DWORD processId = 0)
     }
 
     return hModule;
+}
+
+inline MODULEINFO GetBaseModuleInfo()
+{
+    static MODULEINFO mod;
+    static bool bHasInfo = false;
+    if (bHasInfo)
+    {
+        return mod;
+    }
+    GetModuleInformation(OpenProcess(PROCESS_ALL_ACCESS, false, GetCurrentProcessId()), GetBaseModule(), &mod, sizeof(mod));
+    bHasInfo = true;
+    return mod;
+}
+
+// checks if address is in base module
+inline bool IsBaseAddress(LPVOID p)
+{
+    MODULEINFO mod = GetBaseModuleInfo();
+    return (UINT_PTR(p) > UINT_PTR(mod.lpBaseOfDll))
+        && (UINT_PTR(p) < (UINT_PTR(mod.lpBaseOfDll) + UINT_PTR(mod.SizeOfImage)));
 }
 
 inline PVOID GetRelativeAddress(PVOID absAddr)
@@ -313,10 +338,19 @@ class UToggleable
 protected:
     std::mutex Mutex;
     std::atomic<bool> bEnabled;
-    virtual void EnableImpl();
-    virtual void DisableImpl();
+    inline virtual void EnableImpl() {}
+    inline virtual void DisableImpl() {}
+    inline UToggleable() {}
+    inline UToggleable(const UToggleable& o)
+    {
+        bEnabled.store(o.bEnabled.load());
+    }
+    inline UToggleable(UToggleable&& o) noexcept
+    {
+        bEnabled.store(o.bEnabled.load());
+    }
 public:
-    void Enable()
+    inline void Enable()
     {
         std::lock_guard<std::mutex> lock(Mutex);
         if (!bEnabled.load())
@@ -325,7 +359,7 @@ public:
             bEnabled.store(true);
         }
     }
-    void Disable()
+    inline void Disable()
     {
         std::lock_guard<std::mutex> lock(Mutex);
         if (!bEnabled.load())
@@ -334,7 +368,7 @@ public:
             bEnabled.store(false);
         }
     }
-    void Toggle()
+    inline void Toggle()
     {
         bEnabled.load() ? Disable() : Enable();
     }
@@ -355,8 +389,32 @@ class UMinHook : public UToggleable
 
     PVOID pTarget;
     std::string ID;
+    int depth = 0;
 
-    void InitCommon(bool bEnableImmediately)
+    inline void CreateHook(LPVOID pTarget, LPVOID pDetour, LPVOID* ppTrampoline)
+    {
+        //ULog::Get().dprintln("Creating hook %s %p", ID.c_str(), pTarget);
+        auto getOP = [&]() { return *reinterpret_cast<LPBYTE>(pTarget); };
+        // check if the target function is aldeary hooked and follow them when necessary
+        while (getOP() == 0xE9/*JMP*/ || getOP() == 0xE8/*CALL*/)
+        {
+            UINT_PTR targetAddr = reinterpret_cast<UINT_PTR>(pTarget);
+            INT32 relAddr = *reinterpret_cast<INT32*>(targetAddr + 1);
+            pTarget = reinterpret_cast<LPVOID>(targetAddr + 5 + relAddr);
+            depth += int(!IsBaseAddress(pTarget));
+        }
+
+        if (depth > 0)
+        {
+            ULog::Get().println("Chaining hooks \"%s\", depth: %d", ID.c_str(), depth);
+        }
+        this->pTarget = pTarget;
+
+        MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
+        Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+    }
+
+    inline void InitCommon(bool bEnableImmediately)
     {
         auto& log = ULog::Get();
         if (!Error)
@@ -375,15 +433,18 @@ class UMinHook : public UToggleable
     }
     
 public:
-    UMinHook(std::string ID, std::vector<uint16_t> pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    //inline UMinHook(const UMinHook& o) : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
+    //inline UMinHook(const UMinHook&& o) noexcept : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
+    //inline UMinHook(const UMinHook&) = default;
+    //inline UMinHook(UMinHook&&) = default;
+
+    inline UMinHook(std::string ID, std::vector<uint16_t> pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
         std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (!scan.empty())
         {
-            pTarget = scan[0];
-            MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
-            Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+            CreateHook(scan[0], pDetour, ppTrampoline);
         }
         else
         {
@@ -392,15 +453,14 @@ public:
         InitCommon(bEnableImmediately);
     }
 
-    UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+        : ID(ID)
     {
         std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
         std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (!scan.empty())
         {
-            pTarget = scan[0];
-            MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
-            Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+            CreateHook(scan[0], pDetour, ppTrampoline);
         }
         else
         {
@@ -409,7 +469,23 @@ public:
         InitCommon(bEnableImmediately);
     }
 
-    UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(std::string ID, std::string patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+        : ID(ID)
+    {
+        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
+        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
+        if (!scan.empty())
+        {
+            CreateHook(reinterpret_cast<LPVOID>(UINT_PTR(scan[0]) + offset), pDetour, ppTrampoline);
+        }
+        else
+        {
+            Error = PATTERN_NOT_FOUND;
+        }
+        InitCommon(bEnableImmediately);
+    }
+
+    inline UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID), pTarget(pTarget)
     {
         if (pTarget == nullptr)
@@ -418,8 +494,7 @@ public:
         }
         else
         {
-            MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
-            Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+            CreateHook(pTarget, pDetour, ppTrampoline);
         }
         InitCommon(bEnableImmediately);
     }
@@ -439,17 +514,17 @@ public:
     //    MH_QueueDisableHook(pTarget);
     //}
 
-    virtual void EnableImpl() override
+    inline virtual void EnableImpl() override
     {
         MH_EnableHook(pTarget);
     }
 
-    virtual void DisableImpl() override
+    inline virtual void DisableImpl() override
     {
         MH_DisableHook(pTarget);
     }
 
-    std::string GetErrorString() const
+    inline std::string GetErrorString() const
     {
         switch (Error)
         {
@@ -514,6 +589,17 @@ inline std::string GetDLLName(HMODULE hModule = nullptr)
     return GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, hModule));
 }
 
+inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
+{
+    std::string path = GetWinAPIString(GetModuleFileNameA, hModule);
+    size_t pos = path.rfind('\\');
+    if (pos != std::string::npos)
+    {
+        path = path.substr(0, pos);
+    }
+    return path;
+}
+
 template <typename T = void>
 inline T* PtrByteOffset(void* p, int64_t offset)
 {
@@ -530,50 +616,3 @@ inline T* PtrByteOffset(void* p, int64_t offset)
     }\
 }
 
-//#include <map>
-//#include <set>
-//#include <algorithm>
-//
-//class USortCalls
-//{
-//    std::map<void*, UINT64> frames = {};
-//    std::map<void*, std::string> names = {};
-//    std::vector<std::pair<void*, std::string>> calls = {};
-//    size_t count;
-//    bool bHasAllFn = false;
-//    bool bFinished = false;
-//public:
-//    USortCalls(size_t count) : count(count) {}
-//
-//    void RecordCall(void* fp, std::string fnName, size_t frame)
-//    {
-//        if (bFinished) return;
-//
-//        if (calls.size() == count)
-//        {
-//            auto& log = ULog::Get();
-//            log.dprintln("Call order:");
-//            for (auto& c : calls)
-//            {
-//                log.dprintln("%p %s", c.first, c.second.c_str());
-//            }
-//        }
-//
-//        if (bHasAllFn)
-//        {
-//            if (std::find_if(calls.begin(), calls.end(), [fp](std::pair<void*, std::string> c) { return c.first == fp; }) != calls.end())
-//            {
-//                calls.push_back(std::make_pair(fp, fnName));
-//            }
-//        }
-//
-//        frames[fp] = frame;
-//
-//        std::set<size_t> s;
-//        std::for_each(frames.begin(), frames.end(), [&s](size_t frame) { s.insert(frame); });
-//        if (frames.size() == count && s.size() == 1)
-//        {
-//            bHasAllFn = true;
-//        }
-//    }
-//};
