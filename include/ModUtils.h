@@ -113,8 +113,8 @@ public:
 #endif
 };
 
-//std::string ULog::FileName = "unknown_module.log";
-//bool ULog::bShowTime = true;
+std::string ULog::FileName = "unknown_module.log";
+bool ULog::bShowTime = true;
 
 inline HMODULE GetBaseModule(DWORD processId = 0)
 {
