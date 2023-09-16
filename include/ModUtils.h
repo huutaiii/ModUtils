@@ -549,6 +549,14 @@ inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE 
 }
 
 template <size_t bufferSize = 1000>
+inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND handle = nullptr)
+{
+    CHAR buffer[bufferSize];
+    func(handle, buffer, bufferSize);
+    return std::string(buffer);
+}
+
+template <size_t bufferSize = 1000>
 inline std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
 {
     CHAR buffer[bufferSize];
