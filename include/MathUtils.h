@@ -4,6 +4,7 @@
 
 constexpr float PI = 3.14159265359f;
 constexpr float SMALL_FLOAT = 0.0001f;
+constexpr float INTERP_MIN_DIST = 1e-8f;
 
 #undef min
 #undef max
@@ -47,6 +48,10 @@ inline T pow4(T x) { return x * x * x * x; }
 
 template<typename T>
 inline T safediv(T x, T y) { return (x == 0 || y == 0) ? 0 : x / y; }
+
+// // don't use this...
+// template<typename Tlhs, typename Trhs>
+// inline decltype(auto) safediv(Tlhs lhs, Trhs rhs) { return rhs == Trhs(0) ? (decltype(lhs * rhs))0 : (lhs / rhs); }
 
 template<typename T>
 inline T convnan(T x, T newValue = T(0)) { return isnan(x) ? newValue : x; }
@@ -102,6 +107,9 @@ template<typename T>
 inline T rcp(T x) { return T(1) / x; }
 
 template<typename T>
+inline T safercp(T x) { return safediv<T>(T(1), x); }
+
+template<typename T>
 inline T sign(T x) { return T(x >= T(0) ? 1 : -1); }
 
 template<typename T, typename Tresult>
@@ -109,6 +117,23 @@ inline Tresult sign(T x) { return Tresult(x >= T(0) ? 1 : -1); }
 
 template<typename T, typename Tresult>
 inline Tresult signz(T x) { return x == 0 ? 0 : sign<T, Tresult>(x); }
+
+// clamps x to [-b..-a] or [a..b]
+template<typename T>
+inline T absclamp(T x, T a, T b) {
+#if _DEBUG
+    if (a < T(0) || b < T(0))
+    {
+        std::invalid_argument("Endpoints can't be negative");
+    }
+#endif
+    T s = sign<T>(x);
+    return s * clamp(abs(x), a, b);
+};
+
+// y = (x + bias) * scale
+template<typename T>
+inline T scalebias(T x, T scale, T bias) { return (x + bias) * scale; }
 
 template<typename T> inline T EaseInOutSine(T x) {
     return T(-(cos(PI * x) - 1) / 2);
@@ -121,7 +146,7 @@ template<typename T> inline T EaseOutCubic(T x)
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = 0.0001f)
+inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.f)
     {
@@ -159,7 +184,7 @@ inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> 
 //}
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-inline glm::vec<L, T, Q> InterpToVConstant(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = 0.0001f)
+inline glm::vec<L, T, Q> InterpToVConstant(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.f)
     {
@@ -177,7 +202,7 @@ inline glm::vec<L, T, Q> InterpToVConstant(glm::vec<L, T, Q> current, glm::vec<L
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, glm::vec<L, T, Q> speed, float deltaTime, float minDistance = 0.0001f)
+inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, glm::vec<L, T, Q> speed, float deltaTime, float minDistance = INTERP_MIN_DIST)
 {
     if (glm::length(speed) < 0.0001f)
     {
@@ -190,7 +215,7 @@ inline glm::vec<L, T, Q> InterpToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> 
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-inline glm::vec<L, T, Q> InterpSToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = 0.0001f)
+inline glm::vec<L, T, Q> InterpSToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q> target, float speed, float deltaTime, float minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.f)
     {
@@ -209,7 +234,7 @@ inline glm::vec<L, T, Q> InterpSToV(glm::vec<L, T, Q> current, glm::vec<L, T, Q>
 }
 
 template <typename T>
-inline T InterpToF(T current, T target, double speed, double deltaTime, double minDistance = 1.0 / 10000)
+inline T InterpToF(T current, T target, double speed, double deltaTime, double minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.00001)
     {
@@ -227,7 +252,20 @@ inline T InterpToF(T current, T target, double speed, double deltaTime, double m
 }
 
 template <typename T>
-inline T InterpSToF(T current, T target, double speed, double deltaTime, double minDistance = 1.0 / 10000)
+inline T InterpToFz(T current, T target, double speed, double deltaTime, double minDistance = INTERP_MIN_DIST)
+{
+    T delta = target - current;
+    if (abs(delta) <= minDistance)
+    {
+        return target;
+    }
+
+    T deltaInterp = T(delta * saturate(deltaTime * speed));
+    return current + deltaInterp;
+}
+
+template <typename T>
+inline T InterpSToF(T current, T target, double speed, double deltaTime, double minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.00001)
     {
@@ -246,7 +284,7 @@ inline T InterpSToF(T current, T target, double speed, double deltaTime, double 
 }
 
 template <typename T>
-inline T InterpToFConstant(T current, T target, double speed, double deltaTime, double minDistance = 1.0 / 10000)
+inline T InterpToFConstant(T current, T target, double speed, double deltaTime, double minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.00001)
     {
