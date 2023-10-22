@@ -189,8 +189,17 @@ inline MODULEINFO GetBaseModuleInfo()
 inline bool IsBaseAddress(LPVOID p)
 {
     MODULEINFO mod = GetBaseModuleInfo();
-    return (UINT_PTR(p) > UINT_PTR(mod.lpBaseOfDll))
-        && (UINT_PTR(p) < (UINT_PTR(mod.lpBaseOfDll) + UINT_PTR(mod.SizeOfImage)));
+    return (UINT_PTR(p) >= UINT_PTR(mod.lpBaseOfDll))
+        && (UINT_PTR(p) <= (UINT_PTR(mod.lpBaseOfDll) + UINT_PTR(mod.SizeOfImage)));
+}
+
+// checks if address is in current dll
+inline bool IsCurrentModuleAddress(LPVOID p, HMODULE hModule)
+{
+    MODULEINFO mod;
+    GetModuleInformation(OpenProcess(PROCESS_ALL_ACCESS, false, GetCurrentProcessId()), hModule, &mod, sizeof(mod));
+    UINT_PTR addr = reinterpret_cast<UINT_PTR>(p);
+    return (addr >= UINT_PTR(mod.lpBaseOfDll)) && (addr <= (UINT_PTR(mod.lpBaseOfDll) + UINT_PTR(mod.SizeOfImage)));
 }
 
 inline PVOID GetRelativeAddress(PVOID absAddr)
@@ -245,7 +254,7 @@ inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t
         }
         ssPattern << " ";
     }
-    Log.println("Searching for pattern: %s", ssPattern.str().c_str());
+    Log.println("Search pattern: %s", ssPattern.str().c_str());
 
     LPBYTE currentAddress = 0;
     while (true)
@@ -261,11 +270,11 @@ inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t
             DWORD error = GetLastError();
             if (error == ERROR_INVALID_PARAMETER)
             {
-                Log.println("Reached end of scannable memory.");
+                Log.println("End of process memory.");
             }
             else
             {
-                Log.println("VirtualQuery failed, error code: %i.", error);
+                Log.println("VirtualQuery error: %i.", error);
             }
             break;
         }
@@ -321,6 +330,38 @@ inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t
     OutMatches.shrink_to_fit();
 
     return OutMatches;
+}
+
+// 5 bytes call/jmp
+inline LPVOID GetJumpTargetNear(LPVOID pInstruction)
+{
+    if (pInstruction == nullptr)
+    {
+        return nullptr;
+    }
+    UINT_PTR address = reinterpret_cast<UINT_PTR>(pInstruction);
+    BYTE op = *reinterpret_cast<BYTE*>(address);
+    if (op == 0xE8/*call*/ || op == 0xE9/*jmp*/)
+    {
+        INT32 offset = *reinterpret_cast<INT32*>(address + 1);
+        return reinterpret_cast<LPVOID>(address + 5 + offset);
+    }
+    return nullptr;
+}
+
+inline LPVOID GetJumpTargetFar(LPVOID pInstruction)
+{
+    if (pInstruction == nullptr)
+    {
+        return nullptr;
+    }
+    UINT_PTR address = reinterpret_cast<UINT_PTR>(pInstruction);
+    UINT16 op = *reinterpret_cast<UINT16*>(address);
+    if (op == 0x25ff)
+    {
+        return *reinterpret_cast<LPVOID*>(address + 6);
+    }
+    return nullptr;
 }
 
 // Find the target address of a call instruction
@@ -387,6 +428,10 @@ public:
     inline void Toggle()
     {
         bEnabled.load() ? Disable() : Enable();
+    }
+    inline bool IsEnabled()
+    {
+        return bEnabled.load();
     }
 };
 
@@ -556,6 +601,17 @@ public:
             return "UNKNOWN_ERROR";
         }
     }
+
+    // returns final hook target
+    inline LPVOID GetTarget()
+    {
+        return pTarget;
+    }
+
+    inline std::string GetID()
+    {
+        return ID;
+    }
 };
 
 template <size_t bufferSize>
@@ -563,6 +619,14 @@ inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE 
 {
     CHAR buffer[bufferSize];
     func(hModule, buffer, bufferSize);
+    return std::string(buffer);
+}
+
+template <size_t bufferSize = 1000>
+inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND handle = nullptr)
+{
+    CHAR buffer[bufferSize];
+    func(handle, buffer, bufferSize);
     return std::string(buffer);
 }
 
@@ -632,5 +696,17 @@ inline T* PtrByteOffset(void* p, int64_t offset)
         bCalled_ ## fp = true;\
         ULog::Get().println("First hook call: %p %s, arguments: " paramsFmt, fp, #fp, __VA_ARGS__);\
     }\
+}
+
+
+std::vector<uint8_t> UTF16ToAOB(std::u16string s16)
+{
+    std::vector<uint8_t> out;
+    for (char16_t c : s16)
+    {
+        out.push_back(c & 0xff);
+        out.push_back(c >> 8);
+    }
+    return out;
 }
 
