@@ -14,6 +14,11 @@
 
 #include "MinHook.h"
 
+inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true);
+
+template <size_t bufferSize = 1000>
+inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr);
+
 class ULog
 {
     FILE* file = nullptr;
@@ -99,6 +104,15 @@ public:
         va_end(args);
     }
 
+    inline void eprintln(const char* fmt, ...)
+    {
+        std::string efmt = "[ERROR] " + std::string(fmt);
+        va_list args;
+        va_start(args, fmt);
+        println(efmt.c_str(), args);
+        va_end(args);
+    }
+
 #ifdef _DEBUG
     inline void dprintln(const char* fmt, ...)
     {
@@ -113,8 +127,8 @@ public:
 #endif
 };
 
-std::string ULog::FileName = "unknown_module.log";
-bool ULog::bShowTime = true;
+inline std::string ULog::FileName = "unknown_module.log";
+inline bool ULog::bShowTime = true;
 
 inline HMODULE GetBaseModule(DWORD processId = 0)
 {
@@ -257,17 +271,19 @@ inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t
         }
         lpRegionBase = (LPBYTE)memoryInfo.BaseAddress;
 
+        // https://learn.microsoft.com/en-us/windows/win32/memory/memory-protection-constants
         bool bIsValidMem = memoryInfo.State == MEM_COMMIT &&
-            (memoryInfo.Protect & (0xFF/*PAGE_EXECUTE_READWRITE | PAGE_READWRITE | PAGE_READONLY | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY*/)) != 0;
+            (memoryInfo.Protect & 0xFF) != 0;
 
         bool bShouldScan = bScanAllModules || memoryInfo.AllocationBase == lpOptBase;
 
-        CHAR moduleName[100];
-        GetModuleFileNameA((HMODULE)memoryInfo.AllocationBase, moduleName, 100);
+        //CHAR moduleName[100];
+        //GetModuleFileNameA((HMODULE)memoryInfo.AllocationBase, moduleName, 100);
+        std::string moduleName = GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, (HMODULE)memoryInfo.AllocationBase), false);
 
         if (bIsValidMem && bShouldScan)
         {
-            Log.println("Checking region: %p %d %s", lpRegionBase, memoryInfo.RegionSize, moduleName);
+            Log.println("Searching region: %p %d %s", lpRegionBase, memoryInfo.RegionSize, moduleName.c_str());
             currentAddress = lpRegionBase;
             while (currentAddress < (lpRegionBase + memoryInfo.RegionSize) - pattern.size())
             {
@@ -292,7 +308,7 @@ inline std::vector<LPVOID> MemPatternScan(LPVOID lpOptBase, std::vector<uint16_t
         }
         else
         {
-            Log.dprintln("Skipped region: %p %d %d %s", lpRegionBase, bIsValidMem, bShouldScan, moduleName);
+            Log.dprintln("Skipping region: %p %d %d %s", lpRegionBase, bIsValidMem, bShouldScan, moduleName.c_str());
         }
 
         if (MaxMatches > 0 && OutMatches.size() >= MaxMatches)
@@ -532,6 +548,8 @@ public:
             return "SUCCESS";
         case PATTERN_NOT_FOUND:
             return "PATTERN_NOT_FOUND";
+        case INVALID_POINTER:
+            return "INVALID_POINTER";
         case MINHOOK_ERROR:
             return std::string("MINHOOK_ERROR") + "." + std::string(MH_StatusToString(MHError));
         default:
@@ -540,8 +558,8 @@ public:
     }
 };
 
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr)
+template <size_t bufferSize>
+inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule)
 {
     CHAR buffer[bufferSize];
     func(hModule, buffer, bufferSize);
@@ -564,7 +582,7 @@ inline std::string GetWinAPIString(UINT(WINAPI*func)(LPSTR, UINT))
     return std::string(buffer);
 }
 
-inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
+inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension)
 {
     std::string filename = path;
     size_t pos;
