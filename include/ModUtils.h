@@ -14,6 +14,13 @@
 
 #include "MinHook.h"
 
+#ifdef MODUTILS_PADDING
+    #define _CATIMPL(a, b) a ## b
+    #define CAT(a, b) _CATIMPL(a, b)
+    #define SEQ(pref) CAT(pref, __COUNTER__)
+    #define PAD(size) char SEQ(_padding) [size];
+#endif
+
 inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true);
 
 template <size_t bufferSize = 1000>
@@ -671,6 +678,7 @@ inline std::string GetDLLName(HMODULE hModule = nullptr)
     return GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, hModule));
 }
 
+// does not contain a trailing backslash
 inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
 {
     std::string path = GetWinAPIString(GetModuleFileNameA, hModule);
