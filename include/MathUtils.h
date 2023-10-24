@@ -1,6 +1,7 @@
 #pragma once
 
-#include <glm/glm.hpp>
+// #include <glm/glm.hpp>
+#include "glm-dx.h"
 
 constexpr float PI = 3.14159265359f;
 constexpr float SMALL_FLOAT = 0.0001f;
