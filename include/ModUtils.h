@@ -26,6 +26,8 @@ inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension =
 template <size_t bufferSize = 1000>
 inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr);
 
+#define LOG ULog::Get()
+
 class ULog
 {
     FILE* file = nullptr;
@@ -103,17 +105,17 @@ public:
         }
     }
 
-    inline void println(const char* fmt, ...)
+    inline void println(std::string fmt, ...)
     {
         va_list args;
         va_start(args, fmt);
-        println(fmt, args);
+        println(fmt.c_str(), args);
         va_end(args);
     }
 
-    inline void eprintln(const char* fmt, ...)
+    inline void eprintln(std::string fmt, ...)
     {
-        std::string efmt = "[ERROR] " + std::string(fmt);
+        std::string efmt = "[ERROR] " + (fmt);
         va_list args;
         va_start(args, fmt);
         println(efmt.c_str(), args);
@@ -121,16 +123,16 @@ public:
     }
 
 #ifdef _DEBUG
-    inline void dprintln(const char* fmt, ...)
+    inline void dprintln(std::string fmt, ...)
     {
-        std::string dfmt = "[DEBUG] " + std::string(fmt);
+        std::string dfmt = "[DEBUG] " + (fmt);
         va_list args;
         va_start(args, fmt);
         println(dfmt.c_str(), args);
         va_end(args);
     }
 #else
-    inline void dprintln(const char* fmt, ...) {}
+    inline void dprintln(std::string fmt, ...) {}
 #endif
 };
 
@@ -396,230 +398,6 @@ inline LPVOID FindCallTarget(LPVOID lpOptBase, std::string pattern, int offset =
 {
     return FindCallTarget(lpOptBase, StringtoScanPattern(pattern), offset, bScanAllModules);
 }
-
-class UToggleable
-{
-protected:
-    std::mutex Mutex;
-    std::atomic<bool> bEnabled;
-    inline virtual void EnableImpl() {}
-    inline virtual void DisableImpl() {}
-    inline UToggleable() {}
-    inline UToggleable(const UToggleable& o)
-    {
-        bEnabled.store(o.bEnabled.load());
-    }
-    inline UToggleable(UToggleable&& o) noexcept
-    {
-        bEnabled.store(o.bEnabled.load());
-    }
-public:
-    inline void Enable()
-    {
-        std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
-        {
-            EnableImpl();
-            bEnabled.store(true);
-        }
-    }
-    inline void Disable()
-    {
-        std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
-        {
-            DisableImpl();
-            bEnabled.store(false);
-        }
-    }
-    inline void Toggle()
-    {
-        bEnabled.load() ? Disable() : Enable();
-    }
-    inline bool IsEnabled()
-    {
-        return bEnabled.load();
-    }
-};
-
-// MinHook wrapper class
-class UMinHook : public UToggleable
-{
-    enum EError
-    {
-        SUCCESS = 0,
-        PATTERN_NOT_FOUND,
-        INVALID_POINTER,
-        MINHOOK_ERROR
-    } Error;
-
-    MH_STATUS MHError;
-
-    PVOID pTarget;
-    std::string ID;
-    int depth = 0;
-
-    inline void CreateHook(LPVOID pTarget, LPVOID pDetour, LPVOID* ppTrampoline)
-    {
-        //ULog::Get().dprintln("Creating hook %s %p", ID.c_str(), pTarget);
-        auto getOP = [&]() { return *reinterpret_cast<LPBYTE>(pTarget); };
-        // check if the target function is aldeary hooked and follow them when necessary
-        while (getOP() == 0xE9/*JMP*/ || getOP() == 0xE8/*CALL*/)
-        {
-            UINT_PTR targetAddr = reinterpret_cast<UINT_PTR>(pTarget);
-            INT32 relAddr = *reinterpret_cast<INT32*>(targetAddr + 1);
-            pTarget = reinterpret_cast<LPVOID>(targetAddr + 5 + relAddr);
-            depth += int(!IsBaseAddress(pTarget));
-        }
-
-        if (depth > 0)
-        {
-            ULog::Get().println("Chaining hooks \"%s\", depth: %d", ID.c_str(), depth);
-        }
-        this->pTarget = pTarget;
-
-        MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
-        Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
-    }
-
-    inline void InitCommon(bool bEnableImmediately)
-    {
-        auto& log = ULog::Get();
-        if (!Error)
-        {
-            log.println("Created hook: %s %p (base+%#x)", ID.c_str(), pTarget, GetRelativeAddress(pTarget));
-        }
-        else
-        {
-            log.println("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
-        }
-
-        if (bEnableImmediately)
-        {
-            Enable();
-        }
-    }
-    
-public:
-    //inline UMinHook(const UMinHook& o) : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
-    //inline UMinHook(const UMinHook&& o) noexcept : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
-    //inline UMinHook(const UMinHook&) = default;
-    //inline UMinHook(UMinHook&&) = default;
-
-    inline UMinHook(std::string ID, std::vector<uint16_t> pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
-        : ID(ID)
-    {
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
-        InitCommon(bEnableImmediately);
-    }
-
-    inline UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
-        : ID(ID)
-    {
-        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
-        InitCommon(bEnableImmediately);
-    }
-
-    inline UMinHook(std::string ID, std::string patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
-        : ID(ID)
-    {
-        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(reinterpret_cast<LPVOID>(UINT_PTR(scan[0]) + offset), pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
-        InitCommon(bEnableImmediately);
-    }
-
-    inline UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
-        : ID(ID), pTarget(pTarget)
-    {
-        if (pTarget == nullptr)
-        {
-            Error = INVALID_POINTER;
-        }
-        else
-        {
-            CreateHook(pTarget, pDetour, ppTrampoline);
-        }
-        InitCommon(bEnableImmediately);
-    }
-
-    //static void Commit()
-    //{
-    //    MH_ApplyQueued();
-    //}
-
-    //void QueueEnable()
-    //{
-    //    MH_QueueEnableHook(pTarget);
-    //}
-
-    //void QueueDisable()
-    //{
-    //    MH_QueueDisableHook(pTarget);
-    //}
-
-    inline virtual void EnableImpl() override
-    {
-        MH_EnableHook(pTarget);
-    }
-
-    inline virtual void DisableImpl() override
-    {
-        MH_DisableHook(pTarget);
-    }
-
-    inline std::string GetErrorString() const
-    {
-        switch (Error)
-        {
-        case SUCCESS:
-            return "SUCCESS";
-        case PATTERN_NOT_FOUND:
-            return "PATTERN_NOT_FOUND";
-        case INVALID_POINTER:
-            return "INVALID_POINTER";
-        case MINHOOK_ERROR:
-            return std::string("MINHOOK_ERROR") + "." + std::string(MH_StatusToString(MHError));
-        default:
-            return "UNKNOWN_ERROR";
-        }
-    }
-
-    // returns final hook target
-    inline LPVOID GetTarget()
-    {
-        return pTarget;
-    }
-
-    inline std::string GetID()
-    {
-        return ID;
-    }
-};
 
 template <size_t bufferSize>
 inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule)
