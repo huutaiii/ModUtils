@@ -12,8 +12,6 @@
 #include <windows.h>
 #include <psapi.h>
 
-#include "MinHook.h"
-
 #ifdef MODUTILS_PADDING
     #define _CATIMPL(a, b) a ## b
     #define CAT(a, b) _CATIMPL(a, b)
@@ -416,6 +414,14 @@ inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND 
 }
 
 template <size_t bufferSize = 1000>
+inline std::wstring GetWinAPIString(int(__stdcall* func)(HWND, LPWSTR, int), HWND handle = nullptr)
+{
+    WCHAR buffer[bufferSize];
+    func(handle, buffer, bufferSize);
+    return std::wstring(buffer);
+}
+
+template <size_t bufferSize = 1000>
 inline std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
 {
     CHAR buffer[bufferSize];
@@ -466,6 +472,38 @@ inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
         path = path.substr(0, pos);
     }
     return path;
+}
+
+inline HWND LastHWnd = nullptr;
+inline bool CheckWndText(HWND hwnd, std::wstring title)
+{
+    ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
+    if (GetWinAPIString(GetWindowText, hwnd).find(title) != std::wstring::npos)
+    {
+        LastHWnd = hwnd;
+        return true;
+    }
+    return false;
+}
+
+inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
+{
+    DWORD procID = 0;
+    GetWindowThreadProcessId(hwnd, &procID);
+    if (procID == GetCurrentProcessId())
+    {
+        if (CheckWndText(hwnd, *(std::wstring*)(param)))
+        {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+inline HWND FindWindowHandle(std::wstring title)
+{
+    EnumWindows(&EnumWndCallback, LPARAM(&title));
+    return LastHWnd;
 }
 
 template <typename T = void>

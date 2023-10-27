@@ -125,7 +125,7 @@ inline T absclamp(T x, T a, T b) {
 #if _DEBUG
     if (a < T(0) || b < T(0))
     {
-        std::invalid_argument("Endpoints can't be negative");
+        throw std::invalid_argument("Endpoints can't be negative");
     }
 #endif
     T s = sign<T>(x);

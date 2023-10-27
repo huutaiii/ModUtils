@@ -6,7 +6,7 @@
 #include <functional>
 
 #include "ModUtils.h"
-
+#include "../extern/MinHook.h"
 
 class UToggleable
 {
