@@ -50,9 +50,9 @@ inline T pow4(T x) { return x * x * x * x; }
 template<typename T>
 inline T safediv(T x, T y) { return (x == 0 || y == 0) ? 0 : x / y; }
 
-// // don't use this...
-// template<typename Tlhs, typename Trhs>
-// inline decltype(auto) safediv(Tlhs lhs, Trhs rhs) { return rhs == Trhs(0) ? (decltype(lhs * rhs))0 : (lhs / rhs); }
+// don't use this...
+template<typename Tlhs, typename Trhs>
+inline decltype(auto) safediv(Tlhs lhs, Trhs rhs) { return rhs == Trhs(0) ? (decltype(lhs * rhs))0 : (lhs / rhs); }
 
 template<typename T>
 inline T convnan(T x, T newValue = T(0)) { return isnan(x) ? newValue : x; }
@@ -85,10 +85,11 @@ template<typename Tv, typename Ta>
 #pragma warning(suppress : 4244)
 inline Tv lerp(Tv x, Tv y, Ta a) { a = clamp(a, Ta(0), Ta(1)); return x * Tv((Ta)1.0 - a) + y * Tv(a); }
 
+// maps range [edge0..edge1] to [0..1] with an in-out curve
 template<typename T>
-inline T smoothstep(T edge0, T edge1, T x) {
+inline T smoothstep(T edge0, T edge1, T x, T replaceNaN = 0) {
     x = clamp((x - edge0) / (edge1 - edge0), (T)0, (T)1);
-    if (isnan(x)) return 0;
+    if (isnan(replaceNaN) && isnan(x)) return replaceNaN;
     return x * x * (3 - 2 * x);
 }
 
