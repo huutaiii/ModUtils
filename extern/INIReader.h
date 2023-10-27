@@ -1,8 +1,7 @@
-
+#pragma once
 /*
-The "inih" library is distributed under the New BSD license:
-
 Copyright (c) 2009, Ben Hoyt
+Copyright (c) 2023, Truong Quoc Tai
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -392,15 +391,20 @@ public:
     // and valid false values are "false", "no", "off", "0" (not case sensitive).
     bool GetBoolean(const std::string& section, const std::string& name, bool default_value) const;
 
-    template<glm::length_t L, typename T, glm::qualifier Q>
-    static bool ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result = true);
-
+    // Gets a glm vector from the INI file
+    // components are separated by whitespaces, characters other than decimal digits or whitespaces are ignored
     template<glm::length_t L, typename T, glm::qualifier Q>
     glm::vec<L, T, Q> GetVec(const std::string& section, const std::string& name, glm::vec<L, T, Q> default_value) const;
 
+    // Same as GetVec but 
     // Fills other components with 0 when input has fewer components than defined
     template<glm::length_t L, typename T, glm::qualifier Q>
     glm::vec<L, T, Q> GetVecFill(const std::string& section, const std::string& name, glm::vec<L, T, Q> default_value) const;
+
+    // Parses a string and returns a glm::vec<L, T, Q> value
+    // this is here for testing purposes, use GetVec or GetVecFill instead
+    template<glm::length_t L, typename T, glm::qualifier Q>
+    static bool ParseVec(const std::string& valstr, glm::vec<L, T, Q>& outvec, bool fill_result = true);
 
 protected:
     int _error;
@@ -502,8 +506,6 @@ static bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &ou
     std::vector<T> result(iterator, end);
     if (result.size() == L || (fill_result && result.size() <= L))
     {
-        // maybe outvec needn't have been pass by reference?
-        //memset(glm::value_ptr(outvec), 0, sizeof(glm::vec<L, T, Q>));
         memcpy(glm::value_ptr(outvec), result.data(), sizeof(result[0]) * result.size());
         return true;
     }
