@@ -82,8 +82,8 @@ private:
     MEMORY_BASIC_INFORMATION memInfo;
 
     LPVOID lpCurrent = 0;
-    DWORD bytesAllocated = 0;
-    DWORD currentPageSize = 0;
+    size_t bytesAllocated = 0;
+    size_t currentPageSize = 0;
 
     LPVOID Scan()
     {
@@ -140,8 +140,8 @@ public:
             // Preallocate a region equals to system page size (typically 4KiB)
             lpCurrent = VirtualAlloc(lpAlloc, sys.dwPageSize, flAllocType, flProtec);
 
-            bytesAllocated = static_cast<DWORD>(dwSize);
-            currentPageSize = static_cast<DWORD>(sys.dwPageSize);
+            bytesAllocated = static_cast<size_t>(dwSize);
+            currentPageSize = static_cast<size_t>(sys.dwPageSize);
         }
 
         return (LPBYTE)lpCurrent + bytesAllocated - dwSize;
