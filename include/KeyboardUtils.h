@@ -311,7 +311,7 @@ class KeyConfig
 		for (int mod : mods)
 		{
 			SHORT state  = GetAsyncKeyState(mod);
-			bool pressed = state & (1 << sizeof(SHORT) * CHAR_BIT - 1);
+			bool pressed = state & ((1 << sizeof(SHORT) * CHAR_BIT) - 1);
 			out &= pressed;
 		}
 		return out;
@@ -322,13 +322,13 @@ class KeyConfig
 		int Key                    = 0;
 		std::vector<int> Modifiers = {0};
 
-		HotKey(int Key = 0, std::vector<int> Modifiers = std::vector<int>())
+		inline HotKey(int Key = 0, std::vector<int> Modifiers = std::vector<int>())
 			: Key(Key), Modifiers(Modifiers)
 		{
 		}
-		HotKey(HotKey &o) = default;
+		//inline HotKey(HotKey &o) = default;
 
-		HotKey(std::string s)
+		inline HotKey(std::string s)
 		{
 			Key       = 0;
 			Modifiers = std::vector<int>();
