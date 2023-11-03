@@ -33,6 +33,7 @@ class KeyConfig
 		{"capslock",       0x14}, // CAPS LOCK key
 		{"capslck",        0x14}, // CAPS LOCK key
 		{"capslk",         0x14}, // CAPS LOCK key
+		{"caps",           0x14}, // CAPS LOCK key
 		{"escape",         0x1B}, // ESC key
 		{"esc",            0x1B}, // ESC key
 		{"space",          0x20}, // SPACEBAR
@@ -247,16 +248,40 @@ class KeyConfig
 		}
 		std::string keyNameOriginal = keyName;
 		std::transform(keyName.begin(), keyName.end(), keyName.begin(), [](auto c) { return std::tolower(c); });
+		if (keyName.starts_with("0x"))
+		{
+			return std::stol(keyName, nullptr, 0);
+		}
 		int keycode = 0;
 		try
 		{
-			keycode = KeyMap.at(keyName);
+			if (keyName.size() == 1)
+			{
+				if (keyName[0] >= '0' && keyName[0] <= '9')
+				{
+					keycode = KeyMap.at("0") + keyName[0] - '0';
+				}
+				if (keyName[0] >= 'a' && keyName[0] <= 'z')
+				{
+					keycode = KeyMap.at("a") + keyName[0] - 'a';
+				}
+			}
+			else
+			{
+				keycode = KeyMap.at(keyName);
+			}
 		}
 		catch (std::out_of_range e)
 		{
 			LOG.eprintln("Unknown key: %s", keyNameOriginal.c_str());
 			return 0;
 		}
+#ifdef _DEBUG
+		if (ConvertLRKeys(keycode) != keycode)
+		{
+			LOG.dprintln("Warning: Left/right modifiers are not passed as wndproc wparam");
+		}
+#endif
 		return keycode;
 	}
 
@@ -287,8 +312,23 @@ class KeyConfig
 		}
 		std::string keyNameOriginal = modifierKeyName;
 		std::transform(modifierKeyName.begin(), modifierKeyName.end(), modifierKeyName.begin(), [](auto c) { return std::tolower(c); });
+		if (modifierKeyName.starts_with("0x"))
+		{
+			return std::stol(modifierKeyName, nullptr, 0);
+		}
 		try
 		{
+			if (modifierKeyName.size() == 1)
+			{
+				if (modifierKeyName[0] >= '0' && modifierKeyName[0] <= '9')
+				{
+					return KeyMap.at("0") + modifierKeyName[0] - '0';
+				}
+				if (modifierKeyName[0] >= 'a' && modifierKeyName[0] <= 'z')
+				{
+					return KeyMap.at("a") + modifierKeyName[0] - 'a';
+				}
+			}
 			return KeyMap.at(modifierKeyName);
 		}
 		catch (std::out_of_range e)
@@ -365,6 +405,11 @@ class KeyConfig
 				LOG.dprintln(logstr);
 			}
 #endif
+		}
+
+		inline bool IsPressed(WPARAM wndprocparam)
+		{
+			return wndprocparam == Key && AreModifiersHeld(Modifiers);
 		}
 	};
 };
