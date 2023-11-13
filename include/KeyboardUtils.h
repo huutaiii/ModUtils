@@ -266,7 +266,7 @@ class KeyConfig
 					keycode = KeyMap.at("a") + keyName[0] - 'a';
 				}
 			}
-			else
+			if (!keycode)
 			{
 				keycode = KeyMap.at(keyName);
 			}
