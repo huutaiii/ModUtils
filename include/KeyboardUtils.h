@@ -409,7 +409,7 @@ class KeyConfig
 
 		inline bool IsPressed(UINT wpMsg, WPARAM wndprocparam)
 		{
-			return wpMsg == WM_KEYDOWN && wndprocparam == Key && AreModifiersHeld(Modifiers);
+			return (wpMsg == WM_KEYDOWN || wpMsg == WM_SYSKEYDOWN) && wndprocparam == Key && AreModifiersHeld(Modifiers);
 		}
 	};
 };
