@@ -478,7 +478,7 @@ inline HWND LastHWnd = nullptr;
 inline bool CheckWndText(HWND hwnd, std::wstring title)
 {
     ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
-    if (GetWinAPIString(GetWindowText, hwnd).find(title) != std::wstring::npos)
+    if (GetWinAPIString(GetWindowTextW, hwnd).find(title) != std::wstring::npos)
     {
         LastHWnd = hwnd;
         return true;
