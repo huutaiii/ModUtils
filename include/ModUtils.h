@@ -84,8 +84,8 @@ public:
         //{
         //    fopen_s(&file, FileName.c_str(), "a+");
         //}
-        fopen_s(&file, FileName.c_str(), "a+");
         std::lock_guard<std::mutex> lock(file_mtx);
+        fopen_s(&file, FileName.c_str(), "a+");
         if (file)
         {
             if (bShowTime)
