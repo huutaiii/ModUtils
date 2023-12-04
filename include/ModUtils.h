@@ -465,7 +465,13 @@ inline std::string GetDLLName(HMODULE hModule = nullptr)
 // does not contain a trailing backslash
 inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
 {
-    std::string path = GetWinAPIString(GetModuleFileNameA, hModule);
+    static std::string path = "";
+    if (!path.empty())
+    {
+        return path;
+    }
+
+    path = GetWinAPIString(GetModuleFileNameA, hModule);
     size_t pos = path.rfind('\\');
     if (pos != std::string::npos)
     {
