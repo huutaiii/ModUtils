@@ -8,6 +8,8 @@
 #include <sstream>
 #include <iomanip>
 #include <mutex>
+#include <fstream>
+#include <format>
 
 #include <windows.h>
 #include <psapi.h>
@@ -19,15 +21,36 @@
     #define PAD(size) char SEQ(_padding) [size];
 #endif
 
+#ifdef MODUTILS_MACROS
+    #define _WTEXT_IMPL(s) L##s
+    #define WTEXT(s) _WTEXT_IMPL(s)
+    #define LOG ULog::Get()
+#endif
+
 inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true);
 
 template <size_t bufferSize = 1000>
 inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr);
 
-#define LOG ULog::Get()
 
 class ULog
 {
+public: 
+    enum class EItemType
+    {
+        LOG_INFO,
+        LOG_DEBUG,
+        LOG_WARNING,
+        LOG_ERROR   // why tf is ERROR defined as a macro in winapi
+    };
+
+    struct LogType
+    {
+        EItemType Type;
+        inline LogType(EItemType type) : Type(type) {}
+    } NextItemType{EItemType::LOG_INFO};
+
+protected:
     FILE* file = nullptr;
     std::mutex file_mtx;
 
@@ -58,6 +81,12 @@ class ULog
         //}
     }
 
+#ifdef NDEBUG
+    static constexpr bool IS_DEBUG = false;
+#else
+    static constexpr bool IS_DEBUG = true;
+#endif
+
 public:
 
     static std::string FileName;
@@ -71,19 +100,9 @@ public:
         return *instance;
     }
 
-    bool bFirst = true;
-
     inline void println(const char* fmt, va_list args)
     {
-        //if (bFirst)
-        //{
-        //    bFirst = false;
-        //    fopen_s(&file, FileName.c_str(), "w+");
-        //}
-        //else
-        //{
-        //    fopen_s(&file, FileName.c_str(), "a+");
-        //}
+
         std::lock_guard<std::mutex> lock(file_mtx);
         fopen_s(&file, FileName.c_str(), "a+");
         if (file)
@@ -92,7 +111,7 @@ public:
             {
                 SYSTEMTIME time;
                 GetLocalTime(&time);
-                fprintf(file, "[%02d-%02d-%02d %02d:%02d:%02d.%03d] ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+                fprintf(file, "%02d-%02d-%02d %02d:%02d:%02d.%03d - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
             }
             vfprintf(file, fmt, args);
             fprintf(file, "\n");
@@ -132,6 +151,60 @@ public:
 #else
     inline void dprintln(std::string fmt, ...) {}
 #endif
+
+    inline static LogType Debug() { return LogType(EItemType::LOG_DEBUG); }
+    inline static LogType Warning() { return LogType(EItemType::LOG_WARNING); }
+    inline static LogType Error() { return LogType(EItemType::LOG_ERROR); }
+
+    // Writes a new line each call, use std::format or ULog::println to write more data on to one line
+    template<typename T>
+    inline ULog& operator<<(T value)
+    {
+        if (NextItemType.Type == EItemType::LOG_DEBUG && !IS_DEBUG)
+        {
+            return *this;
+        }
+        std::lock_guard lock(file_mtx);
+        std::wfstream file(FileName, std::ios_base::app);
+        if (bShowTime)
+        {
+            SYSTEMTIME time;
+            GetLocalTime(&time);
+            file << std::format(L"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+        }
+        switch (NextItemType.Type)
+        {
+        default:
+        case EItemType::LOG_INFO:
+            break;
+        case EItemType::LOG_DEBUG:
+            file << "[DEBUG] ";
+            break;
+        case EItemType::LOG_WARNING:
+            file << "[WARNING] ";
+            break;
+        case EItemType::LOG_ERROR:
+            file << "[ERROR] ";
+            break;
+        }
+        file << value << std::endl;
+        file.close();
+        NextItemType = LogType(EItemType::LOG_INFO);
+        return *this;
+    }
+
+    template<>
+    inline ULog& operator<<<LogType>(LogType newType)
+    {
+        NextItemType = newType;
+        return *this;
+    }
+
+    template<>
+    inline ULog& operator<<<std::string>(std::string value)
+    {
+        return operator<<(value.c_str());
+    }
 };
 
 inline std::string ULog::FileName = "unknown_module.log";
@@ -415,6 +488,14 @@ inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND 
 
 template <size_t bufferSize = 1000>
 inline std::wstring GetWinAPIString(int(__stdcall* func)(HWND, LPWSTR, int), HWND handle = nullptr)
+{
+    WCHAR buffer[bufferSize];
+    func(handle, buffer, bufferSize);
+    return std::wstring(buffer);
+}
+
+template <size_t bufferSize = 1000>
+inline std::wstring GetWinAPIString(DWORD(WINAPI* func)(HMODULE, LPWSTR, DWORD), HMODULE handle = nullptr)
 {
     WCHAR buffer[bufferSize];
     func(handle, buffer, bufferSize);
