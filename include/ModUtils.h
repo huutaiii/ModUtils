@@ -27,12 +27,6 @@
     #define LOG ULog::Get()
 #endif
 
-inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true);
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr);
-
-
 class ULog
 {
 public: 
@@ -209,6 +203,52 @@ public:
 
 inline std::string ULog::FileName = "unknown_module.log";
 inline bool ULog::bShowTime = true;
+
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize, typename TParam>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TParam, TChar*, TSize), TParam arg) // __stdcall aka. WINAPI is ignored on x64
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(arg, buffer, bufferSize);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TSize, TChar*))
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(bufferSize, buffer);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TChar*, TSize))
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(buffer, bufferSize);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+
+inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
+{
+    std::string filename = path;
+    size_t pos;
+    pos = filename.rfind('\\');
+    if (pos != std::string::npos)
+    {
+        filename = filename.substr(pos + 1);
+    }
+    if (bRemoveExtension)
+    {
+        pos = filename.rfind('.');
+        if (pos != std::string::npos)
+        {
+            filename = filename.substr(0, pos);
+        }
+    }
+    return filename;
+}
 
 inline HMODULE GetBaseModule(DWORD processId = 0)
 {
@@ -468,74 +508,6 @@ inline LPVOID FindCallTarget(LPVOID pOptBase, std::vector<uint16_t> pattern, int
 inline LPVOID FindCallTarget(LPVOID lpOptBase, std::string pattern, int offset = 0, bool bScanAllModules = false)
 {
     return FindCallTarget(lpOptBase, StringtoScanPattern(pattern), offset, bScanAllModules);
-}
-
-template <size_t bufferSize>
-inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule)
-{
-    CHAR buffer[bufferSize];
-    func(hModule, buffer, bufferSize);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND handle = nullptr)
-{
-    CHAR buffer[bufferSize];
-    func(handle, buffer, bufferSize);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::wstring GetWinAPIString(int(__stdcall* func)(HWND, LPWSTR, int), HWND handle = nullptr)
-{
-    WCHAR buffer[bufferSize];
-    func(handle, buffer, bufferSize);
-    return std::wstring(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::wstring GetWinAPIString(DWORD(WINAPI* func)(HMODULE, LPWSTR, DWORD), HMODULE handle = nullptr)
-{
-    WCHAR buffer[bufferSize];
-    func(handle, buffer, bufferSize);
-    return std::wstring(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
-{
-    CHAR buffer[bufferSize];
-    func(bufferSize, buffer);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(UINT(WINAPI*func)(LPSTR, UINT))
-{
-    CHAR buffer[bufferSize];
-    func(buffer, bufferSize);
-    return std::string(buffer);
-}
-
-inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension)
-{
-    std::string filename = path;
-    size_t pos;
-    pos = filename.rfind('\\');
-    if (pos != std::string::npos)
-    {
-        filename = filename.substr(pos + 1);
-    }
-    if (bRemoveExtension)
-    {
-        pos = filename.rfind('.');
-        if (pos != std::string::npos)
-        {
-            filename = filename.substr(0, pos);
-        }
-    }
-    return filename;
 }
 
 inline std::string GetDLLName(HMODULE hModule = nullptr)
