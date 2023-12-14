@@ -26,7 +26,13 @@
 #ifdef MODUTILS_MACROS
     #define _WTEXT_IMPL(s) L##s
     #define WTEXT(s) _WTEXT_IMPL(s)
-    #define LOG ULog::Get()
+    #define LOG (ULog::Get())
+    #define DEBUG_LOG (ULog::Debug())
+    #define WARNING_LOG (ULog::Warning())
+    #define ERROR_LOG (ULog::Error())
+    #define LOG_DEBUG (LOG << DEBUG_LOG)
+    #define LOG_WARNING (LOG << WARNING_LOG)
+    #define LOG_ERROR (LOG << ERROR_LOG)
 #endif
 
 class ULog
@@ -34,17 +40,17 @@ class ULog
 public: 
     enum class EItemType
     {
-        LOG_INFO,
-        LOG_DEBUG,
-        LOG_WARNING,
-        LOG_ERROR   // why tf is ERROR defined as a macro in winapi
+        LOG_TYPE_INFO,
+        LOG_TYPE_DEBUG,
+        LOG_TYPE_WARNING,
+        LOG_TYPE_ERROR
     };
 
     struct LogType
     {
         EItemType Type;
         inline LogType(EItemType type) : Type(type) {}
-    } NextItemType{EItemType::LOG_INFO};
+    } NextItemType{EItemType::LOG_TYPE_INFO};
 
 protected:
     FILE* file = nullptr;
@@ -148,15 +154,15 @@ public:
     inline void dprintln(std::string fmt, ...) {}
 #endif
 
-    inline static LogType Debug() { return LogType(EItemType::LOG_DEBUG); }
-    inline static LogType Warning() { return LogType(EItemType::LOG_WARNING); }
-    inline static LogType Error() { return LogType(EItemType::LOG_ERROR); }
+    inline static LogType Debug() { return LogType(EItemType::LOG_TYPE_DEBUG); }
+    inline static LogType Warning() { return LogType(EItemType::LOG_TYPE_WARNING); }
+    inline static LogType Error() { return LogType(EItemType::LOG_TYPE_ERROR); }
 
     // Writes a new line each call, use std::format or ULog::println to write more data on to one line
     template<typename T>
     inline ULog& operator<<(T value)
     {
-        if (NextItemType.Type == EItemType::LOG_DEBUG && !IS_DEBUG)
+        if (NextItemType.Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
         {
             return *this;
         }
@@ -171,21 +177,21 @@ public:
         switch (NextItemType.Type)
         {
         default:
-        case EItemType::LOG_INFO:
+        case EItemType::LOG_TYPE_INFO:
             break;
-        case EItemType::LOG_DEBUG:
+        case EItemType::LOG_TYPE_DEBUG:
             file << "[DEBUG] ";
             break;
-        case EItemType::LOG_WARNING:
+        case EItemType::LOG_TYPE_WARNING:
             file << "[WARNING] ";
             break;
-        case EItemType::LOG_ERROR:
+        case EItemType::LOG_TYPE_ERROR:
             file << "[ERROR] ";
             break;
         }
         file << value << std::endl;
         file.close();
-        NextItemType = LogType(EItemType::LOG_INFO);
+        NextItemType = LogType(EItemType::LOG_TYPE_INFO);
         return *this;
     }
 

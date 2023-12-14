@@ -337,6 +337,20 @@ inline int ini_parse(const char* filename, ini_handler handler, void* user)
     return error;
 }
 
+/* See documentation in header file. */
+inline int ini_parse(const WCHAR* filename, ini_handler handler, void* user)
+{
+    FILE* file;
+    int error;
+
+    error = _wfopen_s(&file, filename, L"r");
+    if (error || !file)
+        return -1;
+    error = ini_parse_file(file, handler, user);
+    fclose(file);
+    return error;
+}
+
 #endif /* __INI_H__ */
 
 
@@ -357,7 +371,8 @@ public:
 
     // Construct INIReader and parse given filename. See ini.h for more info
     // about the parsing.
-    explicit INIReader(const std::string& filename);
+    template <typename TString>
+    explicit INIReader(const TString& filename);
 
     // Construct INIReader and parse given file. See ini.h for more info
     // about the parsing.
@@ -427,7 +442,8 @@ protected:
 #include <cctype>
 #include <cstdlib>
 
-inline INIReader::INIReader(const std::string& filename)
+template <typename TString>
+inline INIReader::INIReader(const TString& filename)
 {
     _error = ini_parse(filename.c_str(), ValueHandler, this);
 }
