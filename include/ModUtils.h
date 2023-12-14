@@ -9,7 +9,9 @@
 #include <iomanip>
 #include <mutex>
 #include <fstream>
+#include <unordered_map>
 #include <format>
+#include <filesystem>
 
 #include <windows.h>
 #include <psapi.h>
@@ -515,6 +517,52 @@ inline std::string GetDLLName(HMODULE hModule = nullptr)
     return GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, hModule));
 }
 
+// @return HMODULE Handle to the module that this function is executed in
+inline HMODULE GetCurrentModule()
+{
+    HMODULE hModule = NULL;
+    // seems hack-ish
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCSTR>(&GetCurrentModule), &hModule);
+    return hModule;
+}
+
+inline HMODULE LoadLibraryString(std::string libFileName)
+{
+    return LoadLibraryA(libFileName.c_str());
+}
+
+inline HMODULE LoadLibraryString(std::wstring libFileName)
+{
+    return LoadLibraryW(libFileName.c_str());
+}
+
+// Tries to loads a DLL and shows an error popup when failed.
+// @param std::basic_string<TChar> filename: DLL path relative to current module
+// @param HWND hwnd: window handle passed to MessageBox
+// @return HMODULE The return value of LoadLibraryA|LoadLibraryW
+template <typename TChar>
+inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd = NULL)
+{
+    HMODULE hModule = LoadLibraryString(filename);
+    if (!hModule)
+    {
+        DWORD error = GetLastError();
+        std::wstring caption = std::filesystem::path(GetWinAPIString(GetModuleFileNameW, GetCurrentModule())).filename();
+        MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
+    }
+    return hModule;
+}
+
+inline HMODULE TryLoadLibrary(const char* pfilename, HWND hwnd = NULL)
+{
+    return TryLoadLibrary(std::string(pfilename), hwnd);
+}
+
+inline HMODULE TryLoadLibrary(const WCHAR* pfilename, HWND hwnd = NULL)
+{
+    return TryLoadLibrary(std::wstring(pfilename), hwnd);
+}
+
 // does not contain a trailing backslash
 inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
 {
@@ -527,13 +575,17 @@ inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
     return path;
 }
 
-inline HWND LastHWnd = nullptr;
-inline bool CheckWndText(HWND hwnd, std::wstring title)
+struct UParamEnumWnd
+{
+    HWND LastHWnd;
+    std::wstring Title;
+};
+inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
 {
     ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
-    if (GetWinAPIString(GetWindowTextW, hwnd).find(title) != std::wstring::npos)
+    if (GetWinAPIString(GetWindowTextW, hwnd).find(enumInfo->Title) != std::wstring::npos)
     {
-        LastHWnd = hwnd;
+        enumInfo->LastHWnd = hwnd;
         return true;
     }
     return false;
@@ -545,7 +597,7 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
     GetWindowThreadProcessId(hwnd, &procID);
     if (procID == GetCurrentProcessId())
     {
-        if (CheckWndText(hwnd, *(std::wstring*)(param)))
+        if (CheckWndText(hwnd, (UParamEnumWnd*)(param)))
         {
             return FALSE;
         }
@@ -555,8 +607,15 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
 
 inline HWND FindWindowHandle(std::wstring title)
 {
-    EnumWindows(&EnumWndCallback, LPARAM(&title));
-    return LastHWnd;
+    static std::unordered_map<std::wstring, HWND> Results;
+    if (Results.contains(title))
+    {
+        return Results[title];
+    }
+    UParamEnumWnd info(nullptr, title);
+    EnumWindows(&EnumWndCallback, LPARAM(&info));
+    Results[title] = info.LastHWnd;
+    return info.LastHWnd;
 }
 
 template <typename T = void>
