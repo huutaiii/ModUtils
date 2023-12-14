@@ -79,7 +79,7 @@ public:
 
 private:
     LPBYTE lpScan = 0;
-    MEMORY_BASIC_INFORMATION memInfo;
+    MEMORY_BASIC_INFORMATION memInfo{0};
 
     LPVOID lpCurrent = 0;
     size_t bytesAllocated = 0;
