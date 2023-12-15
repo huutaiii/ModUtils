@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <memory>
 #include <functional>
+#include <array>
 
 #include "ModUtils.h"
 #include "../extern/MinHook.h"
@@ -389,8 +390,11 @@ private:
     std::function<void()> fnEnable = []() {};
     std::function<void()> fnDisable = []() {};
 
-    static const std::vector<uint8_t> RSPUp; // lea rsp,[rsp+8] (5B)
-    static const std::vector<uint8_t> RSPDown; // lea rsp,[rsp-8] (5B)
+    //static const std::vector<uint8_t> RSPUp; // lea rsp,[rsp+8] (5B)
+    //static const std::vector<uint8_t> RSPDown; // lea rsp,[rsp-8] (5B)
+
+    static constexpr std::array<uint8_t, 5> RSPUp = { 0x48, 0x8D, 0x64, 0x24, 0x08 };
+    static constexpr std::array<uint8_t, 5> RSPDown = { 0x48, 0x8D, 0x64, 0x24, 0xf8 };
 
     // Initialize the intermediate code that we can decide to jump to later
     inline void Init()
@@ -567,9 +571,6 @@ protected:
         fnDisable();
     }
 };
-
-const std::vector<uint8_t> UHookInline::RSPUp({ 0x48, 0x8D, 0x64, 0x24, 0x08 });
-const std::vector<uint8_t> UHookInline::RSPDown({ 0x48, 0x8D, 0x64, 0x24, 0xf8 });
 
 //
 //class UMemReplace : public UModSwitch

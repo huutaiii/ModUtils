@@ -641,7 +641,7 @@ inline T* PtrByteOffset(void* p, int64_t offset)
 }
 
 
-std::vector<uint8_t> UTF16ToAOB(std::u16string s16)
+inline std::vector<uint8_t> UTF16ToAOB(std::u16string s16)
 {
     std::vector<uint8_t> out;
     for (char16_t c : s16)
