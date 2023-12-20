@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <format>
 #include <filesystem>
+#include <algorithm>
+#include <atomic>
 
 #include <windows.h>
 #include <psapi.h>
@@ -194,20 +196,20 @@ public:
         NextItemType = LogType(EItemType::LOG_TYPE_INFO);
         return *this;
     }
-
-    template<>
-    inline ULog& operator<<<LogType>(LogType newType)
-    {
-        NextItemType = newType;
-        return *this;
-    }
-
-    template<>
-    inline ULog& operator<<<std::string>(std::string value)
-    {
-        return operator<<(value.c_str());
-    }
 };
+
+template<>
+inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
+{
+    NextItemType = newType;
+    return *this;
+}
+
+template<>
+inline ULog& ULog::operator<<<std::string>(std::string value)
+{
+    return operator<<(value.c_str());
+}
 
 inline std::string ULog::FileName = "unknown_module.log";
 inline bool ULog::bShowTime = true;
