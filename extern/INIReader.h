@@ -512,7 +512,7 @@ inline bool INIReader::GetBoolean(const std::string& section, const std::string&
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-static bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
+inline bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
 {
     // replace unwanted characters with ' '
     std::string loc_valstr(valstr);
