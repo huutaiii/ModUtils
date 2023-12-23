@@ -2,6 +2,7 @@
 
 // #include <glm/glm.hpp>
 #include "glm-dx.h"
+#include <cmath>
 
 constexpr float PI = 3.14159265359f;
 constexpr float SMALL_FLOAT = 0.0001f;
@@ -264,6 +265,21 @@ inline T InterpToFz(T current, T target, double speed, double deltaTime, double 
 
     T deltaInterp = T(delta * saturate(deltaTime * speed));
     return current + deltaInterp;
+}
+
+template <typename T>
+inline T InterpToFEaseInOut(T current, T target, T *pDelta, T maxDeltaInc, double speed, double exponent, double deltaTime, double minDistance = INTERP_MIN_DIST)
+{
+    T delta = target - current;
+
+    // T deltaInterp = T(delta * saturate(deltaTime * speed));
+    T deltaInterp = T(std::pow(std::abs(delta), exponent) * saturate(deltaTime * speed));
+    // deltaInterp = sign(delta) * min(deltaInterp, std::abs(delta));
+
+    deltaInterp = min(std::abs(deltaInterp), std::abs(delta), T(std::abs(*pDelta) + maxDeltaInc * deltaTime)) * sign(delta);
+
+    *pDelta = deltaInterp;
+    return current + (*pDelta);
 }
 
 template <typename T>
