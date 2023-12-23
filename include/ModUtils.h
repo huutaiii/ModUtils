@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <format>
 #include <filesystem>
+#include <algorithm>
+#include <atomic>
 
 #include <windows.h>
 #include <psapi.h>
@@ -194,20 +196,20 @@ public:
         NextItemType = LogType(EItemType::LOG_TYPE_INFO);
         return *this;
     }
-
-    template<>
-    inline ULog& operator<<<LogType>(LogType newType)
-    {
-        NextItemType = newType;
-        return *this;
-    }
-
-    template<>
-    inline ULog& operator<<<std::string>(std::string value)
-    {
-        return operator<<(value.c_str());
-    }
 };
+
+template<>
+inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
+{
+    NextItemType = newType;
+    return *this;
+}
+
+template<>
+inline ULog& ULog::operator<<<std::string>(std::string value)
+{
+    return operator<<(value.c_str());
+}
 
 inline std::string ULog::FileName = "unknown_module.log";
 inline bool ULog::bShowTime = true;
@@ -339,7 +341,7 @@ inline std::vector<uint16_t> StringtoScanPattern(std::string patternString)
 {
     std::vector<uint16_t> out;
     patternString.erase(std::remove_if(patternString.begin(), patternString.end(), ::isspace), patternString.end());
-    if (patternString.size() % 2 != 0) patternString.erase(patternString.end());
+    if (patternString.size() % 2 != 0) patternString.pop_back();
     //ULog::Get().dprintln(patternString.c_str());
     for (size_t i = 0; i + 2 <= patternString.size(); i += 2)
     {
@@ -549,11 +551,12 @@ inline HMODULE LoadLibraryString(std::wstring libFileName)
 template <typename TChar>
 inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd = NULL)
 {
-    HMODULE hModule = LoadLibraryString(filename);
+    std::filesystem::path pathThis(GetWinAPIString(GetModuleFileNameW, GetCurrentModule()));
+    HMODULE hModule = LoadLibraryString(pathThis.parent_path() / filename);
     if (!hModule)
     {
         DWORD error = GetLastError();
-        std::wstring caption = std::filesystem::path(GetWinAPIString(GetModuleFileNameW, GetCurrentModule())).filename();
+        std::wstring caption = pathThis.filename();
         MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
     }
     return hModule;
