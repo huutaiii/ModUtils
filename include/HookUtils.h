@@ -165,6 +165,7 @@ class UMinHook : public UToggleable
 
     MH_STATUS MHError;
 
+    PVOID pScanResult = nullptr;
     PVOID pTarget;
     std::string ID;
     int depth = 0;
@@ -222,6 +223,7 @@ public:
         std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (!scan.empty())
         {
+            pScanResult = scan[0];
             CreateHook(scan[0], pDetour, ppTrampoline);
         }
         else
@@ -238,6 +240,7 @@ public:
         std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (!scan.empty())
         {
+            pScanResult = scan[0];
             CreateHook(scan[0], pDetour, ppTrampoline);
         }
         else
@@ -254,6 +257,7 @@ public:
         std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (!scan.empty())
         {
+            pScanResult = LPBYTE(scan[0]) + offset;
             CreateHook(reinterpret_cast<LPVOID>(UINT_PTR(scan[0]) + offset), pDetour, ppTrampoline);
         }
         else
@@ -323,6 +327,12 @@ public:
     inline LPVOID GetTarget()
     {
         return pTarget;
+    }
+
+    // @return LPVOID The scan result + offset if a scan was required for hook creation, is nullptr otherwise
+    inline LPVOID GetScanResult()
+    {
+        return pScanResult;
     }
 
     inline std::string GetID()
