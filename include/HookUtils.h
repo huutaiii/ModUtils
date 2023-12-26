@@ -117,7 +117,7 @@ public:
     // Subsequent calls usually access the same memory page
     // see VirtualAlloc function
     // 
-    // dwSize in [1..4096]
+    // @param DWORD dwSize in [1..4096]
     LPVOID Alloc(SIZE_T dwSize, SIZE_T alignment = 1, DWORD flAllocType = MEM_RESERVE | MEM_COMMIT, DWORD flProtec = PAGE_EXECUTE_READWRITE)
     {
         std::lock_guard lock(mtx);
@@ -172,6 +172,10 @@ class UMinHook : public UToggleable
 
     inline void CreateHook(LPVOID pTarget, LPVOID pDetour, LPVOID* ppTrampoline)
     {
+        if (!pTarget)
+        {
+            return;
+        }
         //ULog::Get().dprintln("Creating hook %s %p", ID.c_str(), pTarget);
         auto getOP = [&]() { return *reinterpret_cast<LPBYTE>(pTarget); };
         // check if the target function is aldeary hooked and follow them when necessary
@@ -211,63 +215,60 @@ class UMinHook : public UToggleable
         }
     }
 
+    inline void Scan(const std::vector<uint16_t>& pattern, int offset = 0)
+    {
+        std::vector<LPVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
+        if (!scan.empty())
+        {
+            pScanResult = reinterpret_cast<LPVOID>(reinterpret_cast<UINT_PTR>(scan[0]) + offset);
+        }
+        else
+        {
+            Error = PATTERN_NOT_FOUND;
+        }
+    }
+
 public:
     //inline UMinHook(const UMinHook& o) : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
     //inline UMinHook(const UMinHook&& o) noexcept : Error(o.Error), MHError(o.MHError), pTarget(o.pTarget), ID(o.ID), depth(o.depth) {}
     //inline UMinHook(const UMinHook&) = default;
     //inline UMinHook(UMinHook&&) = default;
 
-    inline UMinHook(std::string ID, std::vector<uint16_t> pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            pScanResult = scan[0];
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
-        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            pScanResult = scan[0];
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern, offset);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, std::string patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
         std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            pScanResult = LPBYTE(scan[0]) + offset;
-            CreateHook(reinterpret_cast<LPVOID>(UINT_PTR(scan[0]) + offset), pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+        : ID(ID)
+    {
+        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
+        Scan(pattern, offset);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
+        InitCommon(bEnableImmediately);
+    }
+
+    inline UMinHook(const std::string& ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID), pTarget(pTarget)
     {
         if (pTarget == nullptr)
