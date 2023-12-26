@@ -3,6 +3,7 @@
 // #include <glm/glm.hpp>
 #include "glm-dx.h"
 #include <cmath>
+#include <limits>
 
 constexpr float PI = 3.14159265359f;
 constexpr float SMALL_FLOAT = 0.0001f;
@@ -137,6 +138,8 @@ inline T absclamp(T x, T a, T b) {
 // y = (x + bias) * scale
 template<typename T>
 inline T scalebias(T x, T scale, T bias) { return (x + bias) * scale; }
+
+template<typename T> inline T LinearInterpolation(T x) { return x; }
 
 template<typename T> inline T EaseInSine(T x)
 {
@@ -382,35 +385,35 @@ private:
 public:
     float (*Easing)(float) = EaseOutCubic;
 
-    FDynamicTargetBlend(T source = T(0), float duration = 1)
+    inline FDynamicTargetBlend(T source = T(0), float duration = 1)
         : Source(source), Duration(duration)
     {}
-    FDynamicTargetBlend(float duration) : Source(T(0)), Duration(duration) {}
+    inline FDynamicTargetBlend(float duration) : Source(T(0)), Duration(duration) {}
 
-    void Reset()
+    inline void Reset()
     {
         Current = 0;
     }
 
-    void Reset(T source)
+    inline void Reset(T source)
     {
         Source = source;
         Reset();
     }
 
-    void Reset(T source, float duration)
+    inline void Reset(T source, float duration)
     {
         Duration = duration;
         Reset(source);
     }
 
-    T Update(T target, float deltaTime, float alphaOverride = -1.f)
+    inline T Update(T target, float deltaTime, float alphaOverride = std::numeric_limits<float>::quiet_NaN())
     {
         Current += deltaTime;
-        if (alphaOverride >= 0.f)
+        if (!std::isnan(alphaOverride))
         {
             return lerp(Source, target, alphaOverride);
         }
-        return lerp(Source, target, saturate(Easing(saturate(safediv(Current, Duration)))));
+        return lerp(Source, target, Duration <= 0 ? 1 : saturate(Easing(saturate(safediv(Current, Duration)))));
     }
 };

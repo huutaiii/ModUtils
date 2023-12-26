@@ -206,7 +206,7 @@ class UMinHook : public UToggleable
         }
         else
         {
-            log.println("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
+            log.eprintln("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
         }
 
         if (bEnableImmediately)

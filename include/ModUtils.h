@@ -57,6 +57,7 @@ public:
 protected:
     FILE* file = nullptr;
     std::mutex file_mtx;
+    std::mutex fmt_mtx;
 
     inline ULog(const ULog&) = delete;
 
@@ -168,7 +169,7 @@ public:
         {
             return *this;
         }
-        std::lock_guard lock(file_mtx);
+        std::scoped_lock lock(file_mtx, fmt_mtx);
         std::wfstream file(FileName, std::ios_base::app);
         if (bShowTime)
         {
@@ -201,6 +202,7 @@ public:
 template<>
 inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
 {
+    std::lock_guard lock(fmt_mtx);
     NextItemType = newType;
     return *this;
 }
