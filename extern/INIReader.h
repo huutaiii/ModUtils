@@ -52,10 +52,11 @@ https://github.com/benhoyt/inih
 #include <vector>
 #include <iterator>
 #include <string>
-#include <glm/vec2.hpp>
-#include <glm/vec3.hpp>
-#include <glm/vec4.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include "../glm/glm/vec2.hpp"
+#include "../glm/glm/vec3.hpp"
+#include "../glm/glm/vec4.hpp"
+#include "../glm/glm/gtc/type_ptr.hpp"
+#include <winnt.h>
 
 /* Make this header file easier to include in C++ code */
 #ifdef __cplusplus
