@@ -57,6 +57,7 @@ public:
 protected:
     FILE* file = nullptr;
     std::mutex file_mtx;
+    std::mutex fmt_mtx;
 
     inline ULog(const ULog&) = delete;
 
@@ -168,7 +169,7 @@ public:
         {
             return *this;
         }
-        std::lock_guard lock(file_mtx);
+        std::scoped_lock lock(file_mtx, fmt_mtx);
         std::wfstream file(FileName, std::ios_base::app);
         if (bShowTime)
         {
@@ -201,6 +202,7 @@ public:
 template<>
 inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
 {
+    std::lock_guard lock(fmt_mtx);
     NextItemType = newType;
     return *this;
 }
@@ -339,23 +341,21 @@ inline PVOID GetRelativeAddress(PVOID absAddr)
 
 inline std::vector<uint16_t> StringtoScanPattern(std::string patternString)
 {
-    std::vector<uint16_t> out;
-    patternString.erase(std::remove_if(patternString.begin(), patternString.end(), ::isspace), patternString.end());
-    if (patternString.size() % 2 != 0) patternString.erase(patternString.end());
-    //ULog::Get().dprintln(patternString.c_str());
-    for (size_t i = 0; i + 2 <= patternString.size(); i += 2)
+    patternString.erase(std::remove_if(patternString.begin(), patternString.end(), [](unsigned char c) { return std::isspace(c); }), patternString.end());
+    //if (patternString.size() % 2 != 0) patternString.pop_back();
+    std::vector<uint16_t> out(patternString.size() / 2);
+    for (size_t i = 0; i < out.size(); ++i)
     {
-        std::string sbyte = std::string(&*(patternString.begin() + i), 2);
+        std::string sbyte = std::string(&*(patternString.begin() + i * 2), 2);
         if (sbyte.find('?') != std::string::npos)
         {
-            out.push_back(0xFF00);
+            out[i] = 0xFF00;
         }
         else
         {
-            out.push_back(uint16_t(0x00FF) & (uint16_t)std::stoul(sbyte, nullptr, 16));
+            out[i] = uint16_t(0x00FF) & (uint16_t)std::stoul(sbyte, nullptr, 16);
         }
     }
-    out.shrink_to_fit();
     return out;
 }
 
@@ -551,11 +551,12 @@ inline HMODULE LoadLibraryString(std::wstring libFileName)
 template <typename TChar>
 inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd = NULL)
 {
-    HMODULE hModule = LoadLibraryString(filename);
+    std::filesystem::path pathThis(GetWinAPIString(GetModuleFileNameW, GetCurrentModule()));
+    HMODULE hModule = LoadLibraryString(pathThis.parent_path() / filename);
     if (!hModule)
     {
         DWORD error = GetLastError();
-        std::wstring caption = std::filesystem::path(GetWinAPIString(GetModuleFileNameW, GetCurrentModule())).filename();
+        std::wstring caption = pathThis.filename();
         MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
     }
     return hModule;
@@ -624,12 +625,6 @@ inline HWND FindWindowHandle(std::wstring title)
     EnumWindows(&EnumWndCallback, LPARAM(&info));
     Results[title] = info.LastHWnd;
     return info.LastHWnd;
-}
-
-template <typename T = void>
-inline T* PtrByteOffset(void* p, int64_t offset)
-{
-    return reinterpret_cast<T*>(reinterpret_cast<char*>(p) + offset);
 }
 
 #define LOG_FIRST_CALL(fp, paramsFmt, ...)\

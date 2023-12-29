@@ -2,6 +2,8 @@
 
 // #include <glm/glm.hpp>
 #include "glm-dx.h"
+#include <cmath>
+#include <limits>
 
 constexpr float PI = 3.14159265359f;
 constexpr float SMALL_FLOAT = 0.0001f;
@@ -137,14 +139,51 @@ inline T absclamp(T x, T a, T b) {
 template<typename T>
 inline T scalebias(T x, T scale, T bias) { return (x + bias) * scale; }
 
-template<typename T> inline T EaseInOutSine(T x) {
-    return T(-(cos(PI * x) - 1) / 2);
+template<typename T> inline T LinearInterpolation(T x) { return x; }
+
+template<typename T> inline T EaseInSine(T x)
+{
+    return T(1 - std::cos(PI * x / 2));
+}
+
+template<typename T> inline T EaseOutSine(T x)
+{
+    return T(std::sin(PI * x / 2));
+}
+
+template<typename T> inline T EaseInOutSine(T x)
+{
+    return T(-(std::cos(PI * x) - 1) / 2);
+}
+
+template<typename T> inline T EaseInQuad(T x)
+{
+    return pow2<T>(x);
+}
+
+template<typename T> inline T EaseOutQuad(T x)
+{
+    return T(1) - pow2<T>(T(1) - x);
+}
+
+template<typename T> inline T EaseInOutQuad(T x)
+{
+    return x < T(0.5) ? T(2) * pow2<T>(x) : T(1) - pow2<T>(T(2) - x * T(2)) / T(2);
+}
+
+template<typename T> inline T EaseInCubic(T x)
+{
+    return pow3<T>(x);
 }
 
 template<typename T> inline T EaseOutCubic(T x)
 {
-    T a = T(1) - x;
-    return T(1) - (a * a * a);
+    return T(1) - pow3<T>(T(1) - x);
+}
+
+template<typename T> inline T EaseInOutCubic(T x)
+{
+    return x < T(0.5) ? T(4) * pow3<T>(x) : T(1) - pow3<T>(T(2) - x * T(2)) / T(2);
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
@@ -267,6 +306,21 @@ inline T InterpToFz(T current, T target, double speed, double deltaTime, double 
 }
 
 template <typename T>
+inline T InterpToFEaseInOut(T current, T target, T *pDelta, T maxDeltaInc, double speed, double exponent, double deltaTime, double minDistance = INTERP_MIN_DIST)
+{
+    T delta = target - current;
+
+    // T deltaInterp = T(delta * saturate(deltaTime * speed));
+    T deltaInterp = T(std::pow(std::abs(delta), exponent) * saturate(deltaTime * speed));
+    // deltaInterp = sign(delta) * min(deltaInterp, std::abs(delta));
+
+    deltaInterp = min(std::abs(deltaInterp), std::abs(delta), T(std::abs(*pDelta) + maxDeltaInc * deltaTime)) * sign(delta);
+
+    *pDelta = deltaInterp;
+    return current + (*pDelta);
+}
+
+template <typename T>
 inline T InterpSToF(T current, T target, double speed, double deltaTime, double minDistance = INTERP_MIN_DIST)
 {
     if (speed <= 0.00001)
@@ -331,35 +385,35 @@ private:
 public:
     float (*Easing)(float) = EaseOutCubic;
 
-    FDynamicTargetBlend(T source = T(0), float duration = 1)
+    inline FDynamicTargetBlend(T source = T(0), float duration = 1)
         : Source(source), Duration(duration)
     {}
-    FDynamicTargetBlend(float duration) : Source(T(0)), Duration(duration) {}
+    inline FDynamicTargetBlend(float duration) : Source(T(0)), Duration(duration) {}
 
-    void Reset()
+    inline void Reset()
     {
         Current = 0;
     }
 
-    void Reset(T source)
+    inline void Reset(T source)
     {
         Source = source;
         Reset();
     }
 
-    void Reset(T source, float duration)
+    inline void Reset(T source, float duration)
     {
         Duration = duration;
         Reset(source);
     }
 
-    T Update(T target, float deltaTime, float alphaOverride = -1.f)
+    inline T Update(T target, float deltaTime, float alphaOverride = std::numeric_limits<float>::quiet_NaN())
     {
         Current += deltaTime;
-        if (alphaOverride >= 0.f)
+        if (!std::isnan(alphaOverride))
         {
             return lerp(Source, target, alphaOverride);
         }
-        return lerp(Source, target, saturate(Easing(saturate(safediv(Current, Duration)))));
+        return lerp(Source, target, Duration <= 0 ? 1 : saturate(Easing(saturate(safediv(Current, Duration)))));
     }
 };

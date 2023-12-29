@@ -129,7 +129,12 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 
 /* Maximum line length for any line in INI file. */
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 1000
+#define INI_MAX_LINE 800
+#endif
+
+/* Concatenate values of the same key with '\n', otherwise overwrite existing the values. */
+#ifndef INIREADER_ACCUMULATE
+#define INIREADER_ACCUMULATE 0
 #endif
 
 #ifdef __cplusplus
@@ -372,8 +377,8 @@ public:
 
     // Construct INIReader and parse given filename. See ini.h for more info
     // about the parsing.
-    template <typename TString>
-    explicit INIReader(const TString& filename);
+    template <typename TChar>
+    explicit INIReader(const std::basic_string<TChar>& filename);
 
     // Construct INIReader and parse given file. See ini.h for more info
     // about the parsing.
@@ -443,8 +448,8 @@ protected:
 #include <cctype>
 #include <cstdlib>
 
-template <typename TString>
-inline INIReader::INIReader(const TString& filename)
+template <typename TChar>
+inline INIReader::INIReader(const std::basic_string<TChar>& filename)
 {
     _error = ini_parse(filename.c_str(), ValueHandler, this);
 }
@@ -513,7 +518,7 @@ inline bool INIReader::GetBoolean(const std::string& section, const std::string&
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-static bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
+inline bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
 {
     // replace unwanted characters with ' '
     std::string loc_valstr(valstr);
@@ -568,9 +573,13 @@ inline int INIReader::ValueHandler(void* user, const char* section, const char* 
 {
     INIReader* reader = (INIReader*)user;
     std::string key = MakeKey(section, name);
+#if INIREADER_ACCUMULATE
     if (reader->_values[key].size() > 0)
         reader->_values[key] += "\n";
     reader->_values[key] += value;
+#else
+    reader->_values[key] = value;
+#endif
     reader->_sections.insert(section);
     return 1;
 }
