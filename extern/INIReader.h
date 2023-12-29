@@ -137,6 +137,11 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 #define INI_ALLOW_RAW 0
 #endif
 
+/* String containing the delimiters for separating key value pairs (passed to strchr) */
+#ifndef INI_DELIMITERS
+#define INI_DELIMITERS "=:"
+#endif
+
 /* Concatenate values of the same key with '\n', otherwise overwrite existing the values. */
 #ifndef INIREADER_ACCUMULATE
 #define INIREADER_ACCUMULATE 0
@@ -292,7 +297,7 @@ inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler
         }
         else if (*start) {
             /* Not a comment, must be a name[=:]value pair */
-            end = find_chars_or_comment(start, "=:");
+            end = find_chars_or_comment(start, INI_DELIMITERS);
             if (*end == '=' || *end == ':') {
                 *end = '\0';
                 name = rstrip(start);
