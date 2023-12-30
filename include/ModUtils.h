@@ -558,6 +558,7 @@ inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd
         DWORD error = GetLastError();
         std::wstring caption = pathThis.filename();
         MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
+        SetLastError(error);
     }
     return hModule;
 }
@@ -591,6 +592,13 @@ struct UParamEnumWnd
 };
 inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
 {
+    // check if the target window can process messages and wait till it can
+    // however, this doesn't seem to work and the process hangs anyway
+    for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
+    {
+        LOG_DEBUG << "waiting for window to become responsive";
+        Sleep(4000);
+    }
     ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
     if (GetWinAPIString(GetWindowTextW, hwnd).find(enumInfo->Title) != std::wstring::npos)
     {
@@ -606,7 +614,13 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
     GetWindowThreadProcessId(hwnd, &procID);
     if (procID == GetCurrentProcessId())
     {
-        if (CheckWndText(hwnd, (UParamEnumWnd*)(param)))
+        UParamEnumWnd* pInfo = (UParamEnumWnd*)param;
+        if (pInfo->Title.size() == 0)
+        {
+            pInfo->LastHWnd = hwnd;
+            return FALSE;
+        }
+        if (CheckWndText(hwnd, pInfo))
         {
             return FALSE;
         }
@@ -614,10 +628,13 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
     return TRUE;
 }
 
-inline HWND FindWindowHandle(std::wstring title)
+// USE WITH CAUTION. This can cause any window in the current process to hang indefinitely if it's already unresponsive.
+// @return HWND Handle to the first window with a matching title
+// @param wstring title: can be an empty string, for which the function will return the first window belonging to the current process
+inline HWND FindWindowHandle(std::wstring title = L"")
 {
     static std::unordered_map<std::wstring, HWND> Results;
-    if (Results.contains(title))
+    if (title.size() && Results.contains(title))
     {
         return Results[title];
     }
