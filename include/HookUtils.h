@@ -14,9 +14,9 @@ class UToggleable
 protected:
     std::mutex Mutex;
     std::atomic<bool> bEnabled;
-public:
     inline virtual void EnableImpl() {}
     inline virtual void DisableImpl() {}
+public:
     inline UToggleable() {}
     inline UToggleable(const UToggleable& o)
     {
@@ -26,19 +26,19 @@ public:
     {
         bEnabled.store(o.bEnabled.load());
     }
-    inline void Enable()
+    inline void Enable(bool force = false)
     {
         std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
+        if (force || !bEnabled.load())
         {
             EnableImpl();
             bEnabled.store(true);
         }
     }
-    inline void Disable()
+    inline void Disable(bool force = false)
     {
         std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
+        if (force || !bEnabled.load())
         {
             DisableImpl();
             bEnabled.store(false);
@@ -394,7 +394,7 @@ private:
     bool bUseCall = true;
 
     bool bCanHook = false;
-    UHookAbsoluteNoCopy *pJmpAbs;
+    std::unique_ptr<UHookAbsoluteNoCopy> pJmpAbs;
     size_t JumpOffset;
     size_t StolenBytesOffset;
 
@@ -448,7 +448,7 @@ private:
         }
 
         // create jump from intermediate code to custom code
-        pJmpAbs = new UHookAbsoluteNoCopy(lpIntermediate, lpDestination, JumpOffset);
+        pJmpAbs = std::make_unique<UHookAbsoluteNoCopy>(lpIntermediate, lpDestination, JumpOffset);
         pJmpAbs->Enable();
 
         ULog::Get().println("Generated inline hook '%s' from %p to %p at %p", msg.c_str(), lpHook, lpDestination, lpIntermediate);
@@ -534,10 +534,6 @@ public:
 
     inline std::string GetName() { return msg; }
 
-    ~UHookInline() {
-        delete pJmpAbs;
-        Disable();
-    }
 protected:
     inline virtual void EnableImpl() override
     {
@@ -558,7 +554,6 @@ protected:
         DWORD oldProtect, dummy;
         VirtualProtect(lpHook, numBytes, PAGE_EXECUTE_READWRITE, &oldProtect);
         memset(lpHook, 0x90, numBytes);
-        VirtualProtect(lpHook, numBytes, oldProtect, &dummy);
 
         // write instruction at hook address
         *static_cast<uint8_t*>(lpHook) = bUseCall ? OpCall : OpJmp;
@@ -567,6 +562,7 @@ protected:
 
         *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lpHook) + 1) = relOffset;
 
+        VirtualProtect(lpHook, numBytes, oldProtect, &dummy);
         fnEnable();
     }
     inline virtual void DisableImpl() override
