@@ -605,6 +605,7 @@ inline std::string INIReader::MakeKey(const std::string& section, const std::str
     return key;
 }
 
+// should return 0 on error (non-zero on success).
 inline int INIReader::ValueHandler(void* user, const char* section, const char* name,
                             const char* value)
 {
@@ -613,7 +614,6 @@ inline int INIReader::ValueHandler(void* user, const char* section, const char* 
     {
         return 0;
     }
-    std::string key = MakeKey(section, name);
 #endif
 
     INIReader* reader = (INIReader*)user;
