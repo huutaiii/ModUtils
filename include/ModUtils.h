@@ -29,9 +29,11 @@
     #define _WTEXT_IMPL(s) L##s
     #define WTEXT(s) _WTEXT_IMPL(s)
     #define LOG (ULog::Get())
+    #define INFO_LOG (ULog::Info())
     #define DEBUG_LOG (ULog::Debug())
     #define WARNING_LOG (ULog::Warning())
     #define ERROR_LOG (ULog::Error())
+    #define LOG_INFO (LOG << INFO_LOG)
     #define LOG_DEBUG (LOG << DEBUG_LOG)
     #define LOG_WARNING (LOG << WARNING_LOG)
     #define LOG_ERROR (LOG << ERROR_LOG)
@@ -157,6 +159,7 @@ public:
     inline void dprintln(std::string fmt, ...) {}
 #endif
 
+    inline static LogType Info() { return LogType(EItemType::LOG_TYPE_INFO); }
     inline static LogType Debug() { return LogType(EItemType::LOG_TYPE_DEBUG); }
     inline static LogType Warning() { return LogType(EItemType::LOG_TYPE_WARNING); }
     inline static LogType Error() { return LogType(EItemType::LOG_TYPE_ERROR); }
@@ -167,6 +170,7 @@ public:
     {
         if (NextItemType.Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
         {
+            NextItemType = LogType(EItemType::LOG_TYPE_INFO);
             return *this;
         }
         std::scoped_lock lock(file_mtx, fmt_mtx);
@@ -596,7 +600,7 @@ inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
     // however, this doesn't seem to work and the process hangs anyway
     for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
     {
-        LOG_DEBUG << "waiting for window to become responsive";
+        ULog::Get() << ULog::Debug() << "waiting for window to become responsive";
         Sleep(4000);
     }
     ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
