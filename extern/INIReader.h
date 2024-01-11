@@ -52,10 +52,11 @@ https://github.com/benhoyt/inih
 #include <vector>
 #include <iterator>
 #include <string>
-#include <glm/vec2.hpp>
-#include <glm/vec3.hpp>
-#include <glm/vec4.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include "../glm/glm/vec2.hpp"
+#include "../glm/glm/vec3.hpp"
+#include "../glm/glm/vec4.hpp"
+#include "../glm/glm/gtc/type_ptr.hpp"
+#include <winnt.h>
 
 /* Make this header file easier to include in C++ code */
 #ifdef __cplusplus
@@ -128,7 +129,22 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 
 /* Maximum line length for any line in INI file. */
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 1000
+#define INI_MAX_LINE 800
+#endif
+
+/* Allows lines without a key value pair. Passed to value handler as the value parameter, name is NULL. */
+#ifndef INI_ALLOW_RAW
+#define INI_ALLOW_RAW 0
+#endif
+
+/* String containing the delimiters for separating key value pairs (passed to strchr) */
+#ifndef INI_DELIMITERS
+#define INI_DELIMITERS "=:"
+#endif
+
+/* Concatenate values of the same key with '\n', otherwise overwrite existing the values. */
+#ifndef INIREADER_ACCUMULATE
+#define INIREADER_ACCUMULATE 0
 #endif
 
 #ifdef __cplusplus
@@ -281,7 +297,7 @@ inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler
         }
         else if (*start) {
             /* Not a comment, must be a name[=:]value pair */
-            end = find_chars_or_comment(start, "=:");
+            end = find_chars_or_comment(start, INI_DELIMITERS);
             if (*end == '=' || *end == ':') {
                 *end = '\0';
                 name = rstrip(start);
@@ -298,10 +314,25 @@ inline int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler
                 if (!handler(user, section, name, value) && !error)
                     error = lineno;
             }
+#if INI_ALLOW_RAW
+            else {
+                value = start;
+#if INI_ALLOW_INLINE_COMMENTS
+                end = find_chars_or_comment(value, NULL);
+                if (*end) {
+                    *end = '\0';
+                }
+                if (!handler(user, section, NULL, value) && !error) {
+                    error = lineno;
+                }
+#endif
+            }
+#else
             else if (!error) {
                 /* No '=' or ':' found on name[=:]value line */
                 error = lineno;
             }
+#endif
         }
 
 #if INI_STOP_ON_FIRST_ERROR
@@ -337,6 +368,20 @@ inline int ini_parse(const char* filename, ini_handler handler, void* user)
     return error;
 }
 
+/* See documentation in header file. */
+inline int ini_parse(const WCHAR* filename, ini_handler handler, void* user)
+{
+    FILE* file;
+    int error;
+
+    error = _wfopen_s(&file, filename, L"r");
+    if (error || !file)
+        return -1;
+    error = ini_parse_file(file, handler, user);
+    fclose(file);
+    return error;
+}
+
 #endif /* __INI_H__ */
 
 
@@ -357,7 +402,8 @@ public:
 
     // Construct INIReader and parse given filename. See ini.h for more info
     // about the parsing.
-    explicit INIReader(const std::string& filename);
+    template <typename TChar>
+    explicit INIReader(const std::basic_string<TChar>& filename);
 
     // Construct INIReader and parse given file. See ini.h for more info
     // about the parsing.
@@ -369,6 +415,9 @@ public:
 
     // Return the list of sections found in ini file
     const std::set<std::string>& Sections() const;
+
+    // Get a string of non-key-value-pair lines of the specified section.
+    std::string GetRaw(const std::string& section) const;
 
     // Get a string value from INI file, returning default_value if not found.
     std::string Get(const std::string& section, const std::string& name,
@@ -427,7 +476,8 @@ protected:
 #include <cctype>
 #include <cstdlib>
 
-inline INIReader::INIReader(const std::string& filename)
+template <typename TChar>
+inline INIReader::INIReader(const std::basic_string<TChar>& filename)
 {
     _error = ini_parse(filename.c_str(), ValueHandler, this);
 }
@@ -445,6 +495,15 @@ inline int INIReader::ParseError() const
 inline const std::set<std::string>& INIReader::Sections() const
 {
     return _sections;
+}
+
+inline std::string INIReader::GetRaw(const std::string& section) const
+{
+    if (_values.find(section) != _values.end())
+    {
+        return _values.at(section);
+    }
+    return "";
 }
 
 inline std::string INIReader::Get(const std::string& section, const std::string& name, const std::string& default_value) const
@@ -496,7 +555,7 @@ inline bool INIReader::GetBoolean(const std::string& section, const std::string&
 }
 
 template<glm::length_t L, typename T, glm::qualifier Q>
-static bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
+inline bool INIReader::ParseVec(const std::string& valstr, glm::vec<L, T, Q> &outvec, bool fill_result)
 {
     // replace unwanted characters with ' '
     std::string loc_valstr(valstr);
@@ -546,14 +605,41 @@ inline std::string INIReader::MakeKey(const std::string& section, const std::str
     return key;
 }
 
+// should return 0 on error (non-zero on success).
 inline int INIReader::ValueHandler(void* user, const char* section, const char* name,
                             const char* value)
 {
+#if !INI_ALLOW_RAW
+    if (!name)
+    {
+        return 0;
+    }
+#endif
+
     INIReader* reader = (INIReader*)user;
-    std::string key = MakeKey(section, name);
-    if (reader->_values[key].size() > 0)
-        reader->_values[key] += "\n";
-    reader->_values[key] += value;
+    std::string key = name ? MakeKey(section, name) : section;
+
+    if (name)
+    {
+#if INIREADER_ACCUMULATE
+        if (reader->_values[key].size() > 0)
+            reader->_values[key] += "\n";
+        reader->_values[key] += value;
+#else
+        reader->_values[key] = value;
+#endif
+    }
+    else
+    {
+        if (reader->_values.find(key) == reader->_values.end())
+        {
+            reader->_values[key] = value;
+        }
+        else
+        {
+            reader->_values[key] += std::string("\n") + value;
+        }
+    }
     reader->_sections.insert(section);
     return 1;
 }

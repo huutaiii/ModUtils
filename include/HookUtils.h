@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <memory>
 #include <functional>
+#include <array>
 
 #include "ModUtils.h"
 #include "../extern/MinHook.h"
@@ -13,9 +14,9 @@ class UToggleable
 protected:
     std::mutex Mutex;
     std::atomic<bool> bEnabled;
-public:
     inline virtual void EnableImpl() {}
     inline virtual void DisableImpl() {}
+public:
     inline UToggleable() {}
     inline UToggleable(const UToggleable& o)
     {
@@ -25,19 +26,19 @@ public:
     {
         bEnabled.store(o.bEnabled.load());
     }
-    inline void Enable()
+    inline void Enable(bool force = false)
     {
         std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
+        if (force || !bEnabled.load())
         {
             EnableImpl();
             bEnabled.store(true);
         }
     }
-    inline void Disable()
+    inline void Disable(bool force = false)
     {
         std::lock_guard<std::mutex> lock(Mutex);
-        if (!bEnabled.load())
+        if (force || !bEnabled.load())
         {
             DisableImpl();
             bEnabled.store(false);
@@ -79,7 +80,7 @@ public:
 
 private:
     LPBYTE lpScan = 0;
-    MEMORY_BASIC_INFORMATION memInfo;
+    MEMORY_BASIC_INFORMATION memInfo{0};
 
     LPVOID lpCurrent = 0;
     size_t bytesAllocated = 0;
@@ -116,7 +117,7 @@ public:
     // Subsequent calls usually access the same memory page
     // see VirtualAlloc function
     // 
-    // dwSize in [1..4096]
+    // @param DWORD dwSize in [1..4096]
     LPVOID Alloc(SIZE_T dwSize, SIZE_T alignment = 1, DWORD flAllocType = MEM_RESERVE | MEM_COMMIT, DWORD flProtec = PAGE_EXECUTE_READWRITE)
     {
         std::lock_guard lock(mtx);
@@ -164,12 +165,17 @@ class UMinHook : public UToggleable
 
     MH_STATUS MHError;
 
+    PVOID pScanResult = nullptr;
     PVOID pTarget;
     std::string ID;
     int depth = 0;
 
     inline void CreateHook(LPVOID pTarget, LPVOID pDetour, LPVOID* ppTrampoline)
     {
+        if (!pTarget)
+        {
+            return;
+        }
         //ULog::Get().dprintln("Creating hook %s %p", ID.c_str(), pTarget);
         auto getOP = [&]() { return *reinterpret_cast<LPBYTE>(pTarget); };
         // check if the target function is aldeary hooked and follow them when necessary
@@ -200,12 +206,25 @@ class UMinHook : public UToggleable
         }
         else
         {
-            log.println("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
+            log.eprintln("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
         }
 
         if (bEnableImmediately)
         {
             Enable();
+        }
+    }
+
+    inline void Scan(const std::vector<uint16_t>& pattern, int offset = 0)
+    {
+        std::vector<LPVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
+        if (!scan.empty())
+        {
+            pScanResult = reinterpret_cast<LPVOID>(reinterpret_cast<UINT_PTR>(scan[0]) + offset);
+        }
+        else
+        {
+            Error = PATTERN_NOT_FOUND;
         }
     }
 
@@ -215,54 +234,41 @@ public:
     //inline UMinHook(const UMinHook&) = default;
     //inline UMinHook(UMinHook&&) = default;
 
-    inline UMinHook(std::string ID, std::vector<uint16_t> pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, std::string patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
-        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(scan[0], pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern, offset);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, std::string patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID)
     {
         std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
-        std::vector<PVOID> scan = MemPatternScan(nullptr, pattern, false, 1);
-        if (!scan.empty())
-        {
-            CreateHook(reinterpret_cast<LPVOID>(UINT_PTR(scan[0]) + offset), pDetour, ppTrampoline);
-        }
-        else
-        {
-            Error = PATTERN_NOT_FOUND;
-        }
+        Scan(pattern);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
         InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(std::string ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+        : ID(ID)
+    {
+        std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
+        Scan(pattern, offset);
+        CreateHook(pScanResult, pDetour, ppTrampoline);
+        InitCommon(bEnableImmediately);
+    }
+
+    inline UMinHook(const std::string& ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
         : ID(ID), pTarget(pTarget)
     {
         if (pTarget == nullptr)
@@ -324,6 +330,12 @@ public:
         return pTarget;
     }
 
+    // @return LPVOID The scan result + offset if a scan was required for hook creation, is nullptr otherwise
+    inline LPVOID GetScanResult()
+    {
+        return pScanResult;
+    }
+
     inline std::string GetID()
     {
         return ID;
@@ -382,15 +394,18 @@ private:
     bool bUseCall = true;
 
     bool bCanHook = false;
-    UHookAbsoluteNoCopy *pJmpAbs;
+    std::unique_ptr<UHookAbsoluteNoCopy> pJmpAbs;
     size_t JumpOffset;
     size_t StolenBytesOffset;
 
     std::function<void()> fnEnable = []() {};
     std::function<void()> fnDisable = []() {};
 
-    static const std::vector<uint8_t> RSPUp; // lea rsp,[rsp+8] (5B)
-    static const std::vector<uint8_t> RSPDown; // lea rsp,[rsp-8] (5B)
+    //static const std::vector<uint8_t> RSPUp; // lea rsp,[rsp+8] (5B)
+    //static const std::vector<uint8_t> RSPDown; // lea rsp,[rsp-8] (5B)
+
+    static constexpr std::array<uint8_t, 5> RSPUp = { 0x48, 0x8D, 0x64, 0x24, 0x08 };
+    static constexpr std::array<uint8_t, 5> RSPDown = { 0x48, 0x8D, 0x64, 0x24, 0xf8 };
 
     // Initialize the intermediate code that we can decide to jump to later
     inline void Init()
@@ -433,7 +448,7 @@ private:
         }
 
         // create jump from intermediate code to custom code
-        pJmpAbs = new UHookAbsoluteNoCopy(lpIntermediate, lpDestination, JumpOffset);
+        pJmpAbs = std::make_unique<UHookAbsoluteNoCopy>(lpIntermediate, lpDestination, JumpOffset);
         pJmpAbs->Enable();
 
         ULog::Get().println("Generated inline hook '%s' from %p to %p at %p", msg.c_str(), lpHook, lpDestination, lpIntermediate);
@@ -519,10 +534,6 @@ public:
 
     inline std::string GetName() { return msg; }
 
-    ~UHookInline() {
-        delete pJmpAbs;
-        Disable();
-    }
 protected:
     inline virtual void EnableImpl() override
     {
@@ -543,7 +554,6 @@ protected:
         DWORD oldProtect, dummy;
         VirtualProtect(lpHook, numBytes, PAGE_EXECUTE_READWRITE, &oldProtect);
         memset(lpHook, 0x90, numBytes);
-        VirtualProtect(lpHook, numBytes, oldProtect, &dummy);
 
         // write instruction at hook address
         *static_cast<uint8_t*>(lpHook) = bUseCall ? OpCall : OpJmp;
@@ -552,6 +562,7 @@ protected:
 
         *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(lpHook) + 1) = relOffset;
 
+        VirtualProtect(lpHook, numBytes, oldProtect, &dummy);
         fnEnable();
     }
     inline virtual void DisableImpl() override
@@ -567,9 +578,6 @@ protected:
         fnDisable();
     }
 };
-
-const std::vector<uint8_t> UHookInline::RSPUp({ 0x48, 0x8D, 0x64, 0x24, 0x08 });
-const std::vector<uint8_t> UHookInline::RSPDown({ 0x48, 0x8D, 0x64, 0x24, 0xf8 });
 
 //
 //class UMemReplace : public UModSwitch

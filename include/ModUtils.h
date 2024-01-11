@@ -8,6 +8,12 @@
 #include <sstream>
 #include <iomanip>
 #include <mutex>
+#include <fstream>
+#include <unordered_map>
+#include <format>
+#include <filesystem>
+#include <algorithm>
+#include <atomic>
 
 #include <windows.h>
 #include <psapi.h>
@@ -19,17 +25,41 @@
     #define PAD(size) char SEQ(_padding) [size];
 #endif
 
-inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true);
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule = nullptr);
-
-#define LOG ULog::Get()
+#ifdef MODUTILS_MACROS
+    #define _WTEXT_IMPL(s) L##s
+    #define WTEXT(s) _WTEXT_IMPL(s)
+    #define LOG (ULog::Get())
+    #define INFO_LOG (ULog::Info())
+    #define DEBUG_LOG (ULog::Debug())
+    #define WARNING_LOG (ULog::Warning())
+    #define ERROR_LOG (ULog::Error())
+    #define LOG_INFO (LOG << INFO_LOG)
+    #define LOG_DEBUG (LOG << DEBUG_LOG)
+    #define LOG_WARNING (LOG << WARNING_LOG)
+    #define LOG_ERROR (LOG << ERROR_LOG)
+#endif
 
 class ULog
 {
+public: 
+    enum class EItemType
+    {
+        LOG_TYPE_INFO,
+        LOG_TYPE_DEBUG,
+        LOG_TYPE_WARNING,
+        LOG_TYPE_ERROR
+    };
+
+    struct LogType
+    {
+        EItemType Type;
+        inline LogType(EItemType type) : Type(type) {}
+    } NextItemType{EItemType::LOG_TYPE_INFO};
+
+protected:
     FILE* file = nullptr;
     std::mutex file_mtx;
+    std::mutex fmt_mtx;
 
     inline ULog(const ULog&) = delete;
 
@@ -58,6 +88,12 @@ class ULog
         //}
     }
 
+#ifdef NDEBUG
+    static constexpr bool IS_DEBUG = false;
+#else
+    static constexpr bool IS_DEBUG = true;
+#endif
+
 public:
 
     static std::string FileName;
@@ -71,19 +107,9 @@ public:
         return *instance;
     }
 
-    bool bFirst = true;
-
     inline void println(const char* fmt, va_list args)
     {
-        //if (bFirst)
-        //{
-        //    bFirst = false;
-        //    fopen_s(&file, FileName.c_str(), "w+");
-        //}
-        //else
-        //{
-        //    fopen_s(&file, FileName.c_str(), "a+");
-        //}
+
         std::lock_guard<std::mutex> lock(file_mtx);
         fopen_s(&file, FileName.c_str(), "a+");
         if (file)
@@ -92,7 +118,7 @@ public:
             {
                 SYSTEMTIME time;
                 GetLocalTime(&time);
-                fprintf(file, "[%02d-%02d-%02d %02d:%02d:%02d.%03d] ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+                fprintf(file, "%02d-%02d-%02d %02d:%02d:%02d.%03d - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
             }
             vfprintf(file, fmt, args);
             fprintf(file, "\n");
@@ -132,10 +158,113 @@ public:
 #else
     inline void dprintln(std::string fmt, ...) {}
 #endif
+
+    inline static LogType Info() { return LogType(EItemType::LOG_TYPE_INFO); }
+    inline static LogType Debug() { return LogType(EItemType::LOG_TYPE_DEBUG); }
+    inline static LogType Warning() { return LogType(EItemType::LOG_TYPE_WARNING); }
+    inline static LogType Error() { return LogType(EItemType::LOG_TYPE_ERROR); }
+
+    // Writes a new line each call, use std::format or ULog::println to write more data on to one line
+    template<typename T>
+    inline ULog& operator<<(T value)
+    {
+        if (NextItemType.Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
+        {
+            NextItemType = LogType(EItemType::LOG_TYPE_INFO);
+            return *this;
+        }
+        std::scoped_lock lock(file_mtx, fmt_mtx);
+        std::wfstream file(FileName, std::ios_base::app);
+        if (bShowTime)
+        {
+            SYSTEMTIME time;
+            GetLocalTime(&time);
+            file << std::format(L"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+        }
+        switch (NextItemType.Type)
+        {
+        default:
+        case EItemType::LOG_TYPE_INFO:
+            break;
+        case EItemType::LOG_TYPE_DEBUG:
+            file << "[DEBUG] ";
+            break;
+        case EItemType::LOG_TYPE_WARNING:
+            file << "[WARNING] ";
+            break;
+        case EItemType::LOG_TYPE_ERROR:
+            file << "[ERROR] ";
+            break;
+        }
+        file << value << std::endl;
+        file.close();
+        NextItemType = LogType(EItemType::LOG_TYPE_INFO);
+        return *this;
+    }
 };
+
+template<>
+inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
+{
+    std::lock_guard lock(fmt_mtx);
+    NextItemType = newType;
+    return *this;
+}
+
+template<>
+inline ULog& ULog::operator<<<std::string>(std::string value)
+{
+    return operator<<(value.c_str());
+}
 
 inline std::string ULog::FileName = "unknown_module.log";
 inline bool ULog::bShowTime = true;
+
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize, typename TParam>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TParam, TChar*, TSize), TParam arg) // __stdcall aka. WINAPI is ignored on x64
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(arg, buffer, bufferSize);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TSize, TChar*))
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(bufferSize, buffer);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+template <size_t bufferSize = 1000, typename TChar, typename TSize>
+inline std::basic_string<TChar> GetWinAPIString(TSize(*fp)(TChar*, TSize))
+{
+    TChar buffer[bufferSize];
+    TSize outSize = fp(buffer, bufferSize);
+    return std::basic_string<TChar>(buffer, outSize);
+}
+
+
+inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension = true)
+{
+    std::string filename = path;
+    size_t pos;
+    pos = filename.rfind('\\');
+    if (pos != std::string::npos)
+    {
+        filename = filename.substr(pos + 1);
+    }
+    if (bRemoveExtension)
+    {
+        pos = filename.rfind('.');
+        if (pos != std::string::npos)
+        {
+            filename = filename.substr(0, pos);
+        }
+    }
+    return filename;
+}
 
 inline HMODULE GetBaseModule(DWORD processId = 0)
 {
@@ -216,23 +345,21 @@ inline PVOID GetRelativeAddress(PVOID absAddr)
 
 inline std::vector<uint16_t> StringtoScanPattern(std::string patternString)
 {
-    std::vector<uint16_t> out;
-    patternString.erase(std::remove_if(patternString.begin(), patternString.end(), ::isspace), patternString.end());
-    if (patternString.size() % 2 != 0) patternString.erase(patternString.end());
-    //ULog::Get().dprintln(patternString.c_str());
-    for (size_t i = 0; i + 2 <= patternString.size(); i += 2)
+    patternString.erase(std::remove_if(patternString.begin(), patternString.end(), [](unsigned char c) { return std::isspace(c); }), patternString.end());
+    //if (patternString.size() % 2 != 0) patternString.pop_back();
+    std::vector<uint16_t> out(patternString.size() / 2);
+    for (size_t i = 0; i < out.size(); ++i)
     {
-        std::string sbyte = std::string(&*(patternString.begin() + i), 2);
+        std::string sbyte = std::string(&*(patternString.begin() + i * 2), 2);
         if (sbyte.find('?') != std::string::npos)
         {
-            out.push_back(0xFF00);
+            out[i] = 0xFF00;
         }
         else
         {
-            out.push_back(uint16_t(0x00FF) & (uint16_t)std::stoul(sbyte, nullptr, 16));
+            out[i] = uint16_t(0x00FF) & (uint16_t)std::stoul(sbyte, nullptr, 16);
         }
     }
-    out.shrink_to_fit();
     return out;
 }
 
@@ -397,69 +524,57 @@ inline LPVOID FindCallTarget(LPVOID lpOptBase, std::string pattern, int offset =
     return FindCallTarget(lpOptBase, StringtoScanPattern(pattern), offset, bScanAllModules);
 }
 
-template <size_t bufferSize>
-inline std::string GetWinAPIString(DWORD(*func)(HMODULE, LPSTR, DWORD), HMODULE hModule)
-{
-    CHAR buffer[bufferSize];
-    func(hModule, buffer, bufferSize);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(int(__stdcall *func)(HWND, LPSTR, int), HWND handle = nullptr)
-{
-    CHAR buffer[bufferSize];
-    func(handle, buffer, bufferSize);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::wstring GetWinAPIString(int(__stdcall* func)(HWND, LPWSTR, int), HWND handle = nullptr)
-{
-    WCHAR buffer[bufferSize];
-    func(handle, buffer, bufferSize);
-    return std::wstring(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(DWORD(*func)(DWORD, LPSTR))
-{
-    CHAR buffer[bufferSize];
-    func(bufferSize, buffer);
-    return std::string(buffer);
-}
-
-template <size_t bufferSize = 1000>
-inline std::string GetWinAPIString(UINT(WINAPI*func)(LPSTR, UINT))
-{
-    CHAR buffer[bufferSize];
-    func(buffer, bufferSize);
-    return std::string(buffer);
-}
-
-inline std::string GetFilenameFromPath(std::string path, bool bRemoveExtension)
-{
-    std::string filename = path;
-    size_t pos;
-    pos = filename.rfind('\\');
-    if (pos != std::string::npos)
-    {
-        filename = filename.substr(pos + 1);
-    }
-    if (bRemoveExtension)
-    {
-        pos = filename.rfind('.');
-        if (pos != std::string::npos)
-        {
-            filename = filename.substr(0, pos);
-        }
-    }
-    return filename;
-}
-
 inline std::string GetDLLName(HMODULE hModule = nullptr)
 {
     return GetFilenameFromPath(GetWinAPIString(GetModuleFileNameA, hModule));
+}
+
+// @return HMODULE Handle to the module that this function is executed in
+inline HMODULE GetCurrentModule()
+{
+    HMODULE hModule = NULL;
+    // seems hack-ish
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCSTR>(&GetCurrentModule), &hModule);
+    return hModule;
+}
+
+inline HMODULE LoadLibraryString(std::string libFileName)
+{
+    return LoadLibraryA(libFileName.c_str());
+}
+
+inline HMODULE LoadLibraryString(std::wstring libFileName)
+{
+    return LoadLibraryW(libFileName.c_str());
+}
+
+// Tries to loads a DLL and shows an error popup when failed.
+// @param std::basic_string<TChar> filename: DLL path relative to current module
+// @param HWND hwnd: window handle passed to MessageBox
+// @return HMODULE The return value of LoadLibraryA|LoadLibraryW
+template <typename TChar>
+inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd = NULL)
+{
+    std::filesystem::path pathThis(GetWinAPIString(GetModuleFileNameW, GetCurrentModule()));
+    HMODULE hModule = LoadLibraryString(pathThis.parent_path() / filename);
+    if (!hModule)
+    {
+        DWORD error = GetLastError();
+        std::wstring caption = pathThis.filename();
+        MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
+        SetLastError(error);
+    }
+    return hModule;
+}
+
+inline HMODULE TryLoadLibrary(const char* pfilename, HWND hwnd = NULL)
+{
+    return TryLoadLibrary(std::string(pfilename), hwnd);
+}
+
+inline HMODULE TryLoadLibrary(const WCHAR* pfilename, HWND hwnd = NULL)
+{
+    return TryLoadLibrary(std::wstring(pfilename), hwnd);
 }
 
 // does not contain a trailing backslash
@@ -480,13 +595,24 @@ inline std::string GetDLLDirectory(HMODULE hModule = nullptr)
     return path;
 }
 
-inline HWND LastHWnd = nullptr;
-inline bool CheckWndText(HWND hwnd, std::wstring title)
+struct UParamEnumWnd
 {
-    ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
-    if (GetWinAPIString(GetWindowTextW, hwnd).find(title) != std::wstring::npos)
+    HWND LastHWnd;
+    std::wstring Title;
+};
+inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
+{
+    // check if the target window can process messages and wait till it can
+    // however, this doesn't seem to work and the process hangs anyway
+    for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
     {
-        LastHWnd = hwnd;
+        ULog::Get() << ULog::Debug() << "waiting for window to become responsive";
+        Sleep(4000);
+    }
+    ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
+    if (GetWinAPIString(GetWindowTextW, hwnd).find(enumInfo->Title) != std::wstring::npos)
+    {
+        enumInfo->LastHWnd = hwnd;
         return true;
     }
     return false;
@@ -498,7 +624,13 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
     GetWindowThreadProcessId(hwnd, &procID);
     if (procID == GetCurrentProcessId())
     {
-        if (CheckWndText(hwnd, *(std::wstring*)(param)))
+        UParamEnumWnd* pInfo = (UParamEnumWnd*)param;
+        if (pInfo->Title.size() == 0)
+        {
+            pInfo->LastHWnd = hwnd;
+            return FALSE;
+        }
+        if (CheckWndText(hwnd, pInfo))
         {
             return FALSE;
         }
@@ -506,16 +638,20 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
     return TRUE;
 }
 
-inline HWND FindWindowHandle(std::wstring title)
+// USE WITH CAUTION. This can cause any window in the current process to hang indefinitely if it's already unresponsive.
+// @return HWND Handle to the first window with a matching title
+// @param wstring title: can be an empty string, for which the function will return the first window belonging to the current process
+inline HWND FindWindowHandle(std::wstring title = L"")
 {
-    EnumWindows(&EnumWndCallback, LPARAM(&title));
-    return LastHWnd;
-}
-
-template <typename T = void>
-inline T* PtrByteOffset(void* p, int64_t offset)
-{
-    return reinterpret_cast<T*>(reinterpret_cast<char*>(p) + offset);
+    static std::unordered_map<std::wstring, HWND> Results;
+    if (title.size() && Results.contains(title))
+    {
+        return Results[title];
+    }
+    UParamEnumWnd info(nullptr, title);
+    EnumWindows(&EnumWndCallback, LPARAM(&info));
+    Results[title] = info.LastHWnd;
+    return info.LastHWnd;
 }
 
 #define LOG_FIRST_CALL(fp, paramsFmt, ...)\
@@ -529,7 +665,7 @@ inline T* PtrByteOffset(void* p, int64_t offset)
 }
 
 
-std::vector<uint8_t> UTF16ToAOB(std::u16string s16)
+inline std::vector<uint8_t> UTF16ToAOB(std::u16string s16)
 {
     std::vector<uint8_t> out;
     for (char16_t c : s16)
