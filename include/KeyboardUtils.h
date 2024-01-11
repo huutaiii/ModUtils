@@ -273,13 +273,13 @@ class KeyConfig
 		}
 		catch (std::out_of_range e)
 		{
-			LOG.eprintln("Unknown key: %s", keyNameOriginal.c_str());
+			ULog::Get().eprintln("Unknown key: %s", keyNameOriginal.c_str());
 			return 0;
 		}
 #ifdef _DEBUG
 		if (ConvertLRKeys(keycode) != keycode)
 		{
-			LOG.dprintln("Warning: Left/right modifiers are not passed as wndproc wparam");
+			ULog::Get().dprintln("Warning: Left/right modifiers are not passed as wndproc wparam");
 		}
 #endif
 		return keycode;
@@ -333,7 +333,7 @@ class KeyConfig
 		}
 		catch (std::out_of_range e)
 		{
-			LOG.eprintln("Unknown key: %s", keyNameOriginal.c_str());
+			ULog::Get().eprintln("Unknown key: %s", keyNameOriginal.c_str());
 			return 0;
 		}
 	}
@@ -387,11 +387,11 @@ class KeyConfig
 
 			for (std::string mod : std::vector(keys.begin(), keys.end() - 1))
 			{
-				LOG.dprintln(mod);
+				ULog::Get().dprintln(mod);
 				Modifiers.push_back(GetModifier(mod));
 			}
 			std::string keystr = keys.back();
-			LOG.dprintln(keystr);
+			ULog::Get().dprintln(keystr);
 			Key = ConvertLRKeys(GetKey(keystr));
 
 #if (_DEBUG)
@@ -402,7 +402,7 @@ class KeyConfig
 				{
 					logstr += std::format("{} ", mod);
 				}
-				LOG.dprintln(logstr);
+				ULog::Get().dprintln(logstr);
 			}
 #endif
 		}
