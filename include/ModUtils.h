@@ -97,7 +97,9 @@ protected:
 public:
 
     static std::string FileName;
+    static std::string ModuleName;
     static bool bShowTime;
+    static bool bOutputToStdOut;
 
     inline static ULog& Get()
     {
@@ -109,7 +111,6 @@ public:
 
     inline void println(const char* fmt, va_list args)
     {
-
         std::lock_guard<std::mutex> lock(file_mtx);
         fopen_s(&file, FileName.c_str(), "a+");
         if (file)
@@ -126,6 +127,13 @@ public:
 
             fclose(file);
             file = nullptr;
+        }
+
+        if (bOutputToStdOut)
+        {
+            printf("[%s] ", ModuleName.c_str());
+            vprintf(fmt, args);
+            printf("\n");
         }
     }
 
@@ -181,23 +189,30 @@ public:
             GetLocalTime(&time);
             file << std::format(L"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
         }
+        std::string tag = "";
         switch (NextItemType.Type)
         {
         default:
         case EItemType::LOG_TYPE_INFO:
             break;
         case EItemType::LOG_TYPE_DEBUG:
-            file << "[DEBUG] ";
+            tag = "[DEBUG] ";
             break;
         case EItemType::LOG_TYPE_WARNING:
-            file << "[WARNING] ";
+            tag = "[WARNING] ";
             break;
         case EItemType::LOG_TYPE_ERROR:
-            file << "[ERROR] ";
+            tag = "[ERROR] ";
             break;
         }
-        file << value << std::endl;
+        file << tag.c_str() << value << std::endl;
         file.close();
+
+        if (bOutputToStdOut)
+        {
+            std::cout << std::vformat("[{}] {}{}", std::make_format_args(ModuleName, tag, value)) << std::endl;
+        }
+
         NextItemType = LogType(EItemType::LOG_TYPE_INFO);
         return *this;
     }
@@ -218,7 +233,9 @@ inline ULog& ULog::operator<<<std::string>(std::string value)
 }
 
 inline std::string ULog::FileName = "unknown_module.log";
+inline std::string ULog::ModuleName = "UnknownModule";
 inline bool ULog::bShowTime = true;
+inline bool ULog::bOutputToStdOut = true;
 
 
 template <size_t bufferSize = 1000, typename TChar, typename TSize, typename TParam>
