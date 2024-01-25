@@ -36,6 +36,11 @@
     #define LOG_PLAIN (ULog::UMessage(ULog::EItemType::LOG_TYPE_PLAIN))
 #endif
 
+#ifndef ULOG_WRITE_BATCHING
+#define ULOG_WRITE_BATCHING 0
+#endif
+
+
 class ULog
 {
 public: 
@@ -92,6 +97,11 @@ public:
     static std::string ModuleName;
     static bool bShowTime;
     static bool bOutputToStdOut;
+
+#if ULOG_WRITE_BATCHING
+    std::wstringstream WriteBuffer = std::wstringstream();
+#else
+#endif
 
     inline static ULog& Get()
     {
@@ -159,6 +169,21 @@ public:
     inline void dprintln(std::string fmt, ...) {}
 #endif
 
+    inline void Flush()
+    {
+#if ULOG_WRITE_BATCHING
+        std::lock_guard lock(file_mtx);
+        fopen_s(&file, FileName.c_str(), "a+");
+        if (file)
+        {
+            fputws(WriteBuffer.str().c_str(), file);
+            fclose(file);
+            file = nullptr;
+            std::wstringstream().swap(WriteBuffer);
+        }
+#endif
+    }
+
     class UMessage
     {
         std::wstringstream MsgStream = std::wstringstream();
@@ -215,10 +240,14 @@ public:
                 }
             }
 
+#if ULOG_WRITE_BATCHING
+            ULog::Get().WriteBuffer << line << std::endl;
+#else
             std::lock_guard lock(ULog::Get().file_mtx);
             std::wfstream file(FileName, std::ios_base::app);
             file << line << std::endl;
             file.close();
+#endif
         }
 
         template <typename T>
