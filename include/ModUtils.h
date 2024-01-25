@@ -29,14 +29,11 @@
     #define _WTEXT_IMPL(s) L##s
     #define WTEXT(s) _WTEXT_IMPL(s)
     #define LOG (ULog::Get())
-    #define INFO_LOG (ULog::Info())
-    #define DEBUG_LOG (ULog::Debug())
-    #define WARNING_LOG (ULog::Warning())
-    #define ERROR_LOG (ULog::Error())
-    #define LOG_INFO (LOG << INFO_LOG)
-    #define LOG_DEBUG (LOG << DEBUG_LOG)
-    #define LOG_WARNING (LOG << WARNING_LOG)
-    #define LOG_ERROR (LOG << ERROR_LOG)
+    #define LOG_INFO (ULog::UMessage(ULog::EItemType::LOG_TYPE_INFO))
+    #define LOG_DEBUG (ULog::UMessage(ULog::EItemType::LOG_TYPE_DEBUG))
+    #define LOG_WARNING (ULog::UMessage(ULog::EItemType::LOG_TYPE_WARNING))
+    #define LOG_ERROR (ULog::UMessage(ULog::EItemType::LOG_TYPE_ERROR))
+    #define LOG_PLAIN (ULog::UMessage(ULog::EItemType::LOG_TYPE_PLAIN))
 #endif
 
 class ULog
@@ -47,14 +44,9 @@ public:
         LOG_TYPE_INFO,
         LOG_TYPE_DEBUG,
         LOG_TYPE_WARNING,
-        LOG_TYPE_ERROR
+        LOG_TYPE_ERROR,
+        LOG_TYPE_PLAIN,
     };
-
-    struct LogType
-    {
-        EItemType Type;
-        inline LogType(EItemType type) : Type(type) {}
-    } NextItemType{EItemType::LOG_TYPE_INFO};
 
 protected:
     FILE* file = nullptr;
@@ -167,69 +159,85 @@ public:
     inline void dprintln(std::string fmt, ...) {}
 #endif
 
-    inline static LogType Info() { return LogType(EItemType::LOG_TYPE_INFO); }
-    inline static LogType Debug() { return LogType(EItemType::LOG_TYPE_DEBUG); }
-    inline static LogType Warning() { return LogType(EItemType::LOG_TYPE_WARNING); }
-    inline static LogType Error() { return LogType(EItemType::LOG_TYPE_ERROR); }
-
-    // Writes a new line each call, use std::format or ULog::println to write more data on to one line
-    template<typename T>
-    inline ULog& operator<<(T value)
+    class UMessage
     {
-        if (NextItemType.Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
-        {
-            NextItemType = LogType(EItemType::LOG_TYPE_INFO);
-            return *this;
-        }
-        std::scoped_lock lock(file_mtx, fmt_mtx);
-        std::wfstream file(FileName, std::ios_base::app);
-        if (bShowTime)
-        {
-            SYSTEMTIME time;
-            GetLocalTime(&time);
-            file << std::format(L"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} - ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
-        }
-        std::string tag = "";
-        switch (NextItemType.Type)
-        {
-        default:
-        case EItemType::LOG_TYPE_INFO:
-            break;
-        case EItemType::LOG_TYPE_DEBUG:
-            tag = "[DEBUG] ";
-            break;
-        case EItemType::LOG_TYPE_WARNING:
-            tag = "[WARNING] ";
-            break;
-        case EItemType::LOG_TYPE_ERROR:
-            tag = "[ERROR] ";
-            break;
-        }
-        file << tag.c_str() << value << std::endl;
-        file.close();
+        std::wstringstream MsgStream = std::wstringstream();
+        EItemType Type;
 
-        if (bOutputToStdOut)
+    public:
+        UMessage(EItemType type = EItemType::LOG_TYPE_INFO) : Type(type) {}
+
+        ~UMessage()
         {
-            std::cout << std::vformat("[{}] {}{}", std::make_format_args(ModuleName, tag, value)) << std::endl;
+            std::wstring line;
+            if (Type != EItemType::LOG_TYPE_PLAIN)
+            {
+                std::wstring timestamp;
+                if (bShowTime)
+                {
+                    SYSTEMTIME time;
+                    GetLocalTime(&time);
+                    timestamp = std::format(L"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+                }
+
+                std::wstring tag = L"";
+                switch (Type)
+                {
+                default:
+                case EItemType::LOG_TYPE_INFO:
+                    break;
+                case EItemType::LOG_TYPE_DEBUG:
+                    tag = L"[DEBUG] ";
+                    break;
+                case EItemType::LOG_TYPE_WARNING:
+                    tag = L"[WARNING] ";
+                    break;
+                case EItemType::LOG_TYPE_ERROR:
+                    tag = L"[ERROR] ";
+                    break;
+                }
+
+                std::wstring message = MsgStream.str();
+                line = std::format(L"{} - {}{}", timestamp, tag, message);
+
+                if (bOutputToStdOut)
+                {
+                    std::wstring wModuleName(ModuleName.begin(), ModuleName.end());
+                    std::wcout << std::format(L"[{}] {}{}", wModuleName, tag, message) << std::endl;
+                }
+            }
+            else
+            {
+                line = MsgStream.str();
+                if (bOutputToStdOut)
+                {
+                    std::wcout << MsgStream.str();
+                }
+            }
+
+            std::lock_guard lock(ULog::Get().file_mtx);
+            std::wfstream file(FileName, std::ios_base::app);
+            file << line << std::endl;
+            file.close();
         }
 
-        NextItemType = LogType(EItemType::LOG_TYPE_INFO);
-        return *this;
-    }
+        template <typename T>
+        inline UMessage& operator<<(T);
+    };
 };
 
-template<>
-inline ULog& ULog::operator<<<ULog::LogType>(ULog::LogType newType)
+template<typename T>
+inline ULog::UMessage& ULog::UMessage::operator<<(T value)
 {
-    std::lock_guard lock(fmt_mtx);
-    NextItemType = newType;
+    MsgStream << value;
     return *this;
 }
 
 template<>
-inline ULog& ULog::operator<<<std::string>(std::string value)
+inline ULog::UMessage& ULog::UMessage::operator<<(std::string string)
 {
-    return operator<<(value.c_str());
+    MsgStream << string.c_str();
+    return *this;
 }
 
 inline std::string ULog::FileName = "unknown_module.log";
@@ -623,7 +631,7 @@ inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
     // however, this doesn't seem to work and the process hangs anyway
     for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
     {
-        ULog::Get() << ULog::Debug() << "waiting for window to become responsive";
+        ULog::Get().dprintln("waiting for window to become responsive");
         Sleep(4000);
     }
     ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
