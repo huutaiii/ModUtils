@@ -169,6 +169,10 @@ public:
 
         ~UMessage()
         {
+            if (Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
+            {
+                return;
+            }
             std::wstring line;
             if (Type != EItemType::LOG_TYPE_PLAIN)
             {
@@ -229,15 +233,17 @@ public:
 template<typename T>
 inline ULog::UMessage& ULog::UMessage::operator<<(T value)
 {
-    MsgStream << value;
+    if (!(Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG))
+    {
+        MsgStream << value;
+    }
     return *this;
 }
 
 template<>
 inline ULog::UMessage& ULog::UMessage::operator<<(std::string string)
 {
-    MsgStream << string.c_str();
-    return *this;
+    return *this << string.c_str();
 }
 
 inline std::string ULog::FileName = "unknown_module.log";
