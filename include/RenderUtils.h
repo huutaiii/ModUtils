@@ -39,7 +39,7 @@ protected:
 
 public:
 
-	UJitterGenerator(uint32_t numPhases, uint32_t offset = 1, uint32_t distance = 1)
+	UJitterGenerator(uint32_t numPhases = 8, uint32_t offset = 1, uint32_t distance = 1)
 		: NumPhases(numPhases), Offset(offset), Distance(distance)
 	{
 		Generate();
@@ -59,9 +59,9 @@ public:
 
 	// calculates a recommended jitter phase count for use with temporal super sampling
 	// https://github.com/NVIDIA/DLSS/blob/v3.5.10/doc/DLSS_Programming_Guide_Release.pdf
-	inline static uint32_t CalcNumPhasesTSR(uint32_t targetHeight, uint32_t renderHeight, uint32_t baseCount = 8)
+	inline static uint32_t CalcNumPhasesTSR(float targetHeight, float renderHeight, uint32_t baseCount = 8)
 	{
-		return baseCount * (uint32_t)pow2(1.f * targetHeight / renderHeight);
+		return baseCount * (uint32_t)pow2(targetHeight / renderHeight);
 	}
 };
 
