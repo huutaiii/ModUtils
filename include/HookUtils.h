@@ -160,10 +160,12 @@ class UMinHook : public UToggleable
         SUCCESS = 0,
         PATTERN_NOT_FOUND,
         INVALID_POINTER,
-        MINHOOK_ERROR
+        MINHOOK_ERROR,
+        MUTEX_ERROR,
     } Error;
 
     MH_STATUS MHError;
+    DWORD WindowsAPIError;
 
     PVOID pScanResult = nullptr;
     PVOID pTarget;
@@ -174,10 +176,46 @@ class UMinHook : public UToggleable
     {
         if (!pTarget)
         {
+            Error = INVALID_POINTER;
             return;
         }
+
+        auto& log = ULog::Get();
+
+        std::string mtxName = std::vformat("Local\\HOOK_{}", std::make_format_args(pTarget));
+        SetLastError(0);
+        HANDLE mutex = CreateMutexA(NULL, FALSE, mtxName.c_str());
+        if (!mutex)
+        {
+            Error = MUTEX_ERROR;
+            WindowsAPIError = GetLastError();
+            return;
+        }
+
+        ULog::Get().dprintln("Locking mutex: %s", mtxName.c_str());
+
+        SetLastError(0);
+        switch (WaitForSingleObject(mutex, 10000))
+        {
+        case WAIT_OBJECT_0:
+            break;
+        case WAIT_ABANDONED:
+        case WAIT_FAILED:
+        case WAIT_TIMEOUT:
+        default:
+            Error = MUTEX_ERROR;
+            WindowsAPIError = GetLastError();
+            return;
+        }
+
         //ULog::Get().dprintln("Creating hook %s %p", ID.c_str(), pTarget);
-        auto getOP = [&]() { return *reinterpret_cast<LPBYTE>(pTarget); };
+        auto getOP = [&]() { 
+            DWORD oldProtect, dummy;
+            VirtualProtect(pTarget, 1, PAGE_READONLY, &oldProtect);
+            BYTE byte = *reinterpret_cast<LPBYTE>(pTarget);
+            VirtualProtect(pTarget, 1, oldProtect, &dummy);
+            return byte;
+        };
         // check if the target function is aldeary hooked and follow them when necessary
         while (getOP() == 0xE9/*JMP*/ || getOP() == 0xE8/*CALL*/)
         {
@@ -193,13 +231,10 @@ class UMinHook : public UToggleable
         }
         this->pTarget = pTarget;
 
+        ULog::Get().println("Creating hook at %p", pTarget);
         MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
         Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
-    }
 
-    inline void InitCommon(bool bEnableImmediately)
-    {
-        auto& log = ULog::Get();
         if (!Error)
         {
             log.println("Created hook: %s %p (base+%#x)", ID.c_str(), pTarget, GetRelativeAddress(pTarget));
@@ -209,10 +244,8 @@ class UMinHook : public UToggleable
             log.eprintln("Cannot create hook: %s %s", ID.c_str(), GetErrorString().c_str());
         }
 
-        if (bEnableImmediately)
-        {
-            Enable();
-        }
+        Enable();
+        ReleaseMutex(mutex);
     }
 
     inline void Scan(const std::vector<uint16_t>& pattern, int offset = 0)
@@ -234,41 +267,37 @@ public:
     //inline UMinHook(const UMinHook&) = default;
     //inline UMinHook(UMinHook&&) = default;
 
-    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, PVOID pDetour, PVOID* ppTrampoline)
         : ID(ID)
     {
         Scan(pattern);
         CreateHook(pScanResult, pDetour, ppTrampoline);
-        InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::vector<uint16_t>& pattern, int offset, PVOID pDetour, PVOID* ppTrampoline)
         : ID(ID)
     {
         Scan(pattern, offset);
         CreateHook(pScanResult, pDetour, ppTrampoline);
-        InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(const std::string& ID, const std::string& patternstr, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, PVOID pDetour, PVOID* ppTrampoline)
         : ID(ID)
     {
         std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
         Scan(pattern);
         CreateHook(pScanResult, pDetour, ppTrampoline);
-        InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(const std::string& ID, const std::string& patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, const std::string& patternstr, int offset, PVOID pDetour, PVOID* ppTrampoline)
         : ID(ID)
     {
         std::vector<UINT16> pattern = StringtoScanPattern(patternstr);
         Scan(pattern, offset);
         CreateHook(pScanResult, pDetour, ppTrampoline);
-        InitCommon(bEnableImmediately);
     }
 
-    inline UMinHook(const std::string& ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline, bool bEnableImmediately = true)
+    inline UMinHook(const std::string& ID, LPVOID pTarget, LPVOID pDetour, PVOID* ppTrampoline)
         : ID(ID), pTarget(pTarget)
     {
         if (pTarget == nullptr)
@@ -279,7 +308,6 @@ public:
         {
             CreateHook(pTarget, pDetour, ppTrampoline);
         }
-        InitCommon(bEnableImmediately);
     }
 
     //static void Commit()
@@ -319,6 +347,8 @@ public:
             return "INVALID_POINTER";
         case MINHOOK_ERROR:
             return std::string("MINHOOK_ERROR") + "." + std::string(MH_StatusToString(MHError));
+        case MUTEX_ERROR:
+            return std::format("MUTEX_ERROR.{}", WindowsAPIError);
         default:
             return "UNKNOWN_ERROR";
         }
