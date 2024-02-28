@@ -139,6 +139,9 @@ inline T absclamp(T x, T a, T b) {
 template<typename T>
 inline T scalebias(T x, T scale, T bias) { return (x + bias) * scale; }
 
+template<typename T>
+inline T hypotenuse(T a, T b) { return std::sqrt(a * a + b * b); }
+
 template<typename T> inline T LinearInterpolation(T x) { return x; }
 
 template<typename T> inline T EaseInSine(T x)

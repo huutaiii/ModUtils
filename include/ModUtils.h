@@ -1,5 +1,8 @@
 #pragma once
 
+// Windows 10 1903
+#pragma comment(lib, "icu.lib")
+
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -14,9 +17,10 @@
 #include <filesystem>
 #include <algorithm>
 #include <atomic>
+#include <icu.h>
 
 #include <windows.h>
-#include <psapi.h>
+#include <psapi.h>  
 
 #ifdef MODUTILS_PADDING
     #define _CATIMPL(a, b) a ## b
@@ -34,6 +38,11 @@
     #define LOG_WARNING (ULog::UMessage(ULog::EItemType::LOG_TYPE_WARNING))
     #define LOG_ERROR (ULog::UMessage(ULog::EItemType::LOG_TYPE_ERROR))
     #define LOG_PLAIN (ULog::UMessage(ULog::EItemType::LOG_TYPE_PLAIN))
+
+    #define _QUOTE(s) #s
+    #define QUOTE(s) _QUOTE(s)
+    #define FUNCTION_NAME __FUNCTION__
+    #define LOG_CONTEXT (std::string("[") + std::filesystem::path(__FILE__).filename().string() + std::string("::" QUOTE(__LINE__) "::" FUNCTION_NAME) + std::string("] "))
 #endif
 
 class ULog
@@ -167,6 +176,22 @@ public:
     public:
         UMessage(EItemType type = EItemType::LOG_TYPE_INFO) : Type(type) {}
 
+        inline static std::string convert_utf8(const std::wstring& str)
+        {
+            std::string out;
+
+            static_assert(sizeof(wchar_t) == 2);
+            UErrorCode uError;
+            int32_t outSize;
+            u_strToUTF8(0, 0, &outSize, (UChar*)str.c_str(), str.size(), &uError);
+
+            uError = U_ZERO_ERROR;
+            out.resize(outSize);
+            u_strToUTF8(out.data(), out.size(), nullptr, (UChar*)str.c_str(), str.size(), &uError);
+            //assert(uError == U_ZERO_ERROR || uError == U_STRING_NOT_TERMINATED_WARNING);
+            return out;
+        }
+
         ~UMessage()
         {
             if (Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
@@ -220,8 +245,8 @@ public:
             }
 
             std::lock_guard lock(ULog::Get().file_mtx);
-            std::wfstream file(FileName, std::ios_base::app);
-            file << line << std::endl;
+            std::fstream file(FileName, std::ios_base::app);
+            file << convert_utf8(line) << std::endl;
             file.close();
         }
 
