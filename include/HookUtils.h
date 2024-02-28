@@ -155,6 +155,7 @@ public:
 // MinHook wrapper class
 class UMinHook : public UToggleable
 {
+public:
     enum EError
     {
         SUCCESS = 0,
@@ -162,8 +163,10 @@ class UMinHook : public UToggleable
         INVALID_POINTER,
         MINHOOK_ERROR,
         MUTEX_ERROR,
-    } Error;
+    };
 
+protected:
+    EError Error;
     MH_STATUS MHError;
     DWORD WindowsAPIError;
 
@@ -231,7 +234,7 @@ class UMinHook : public UToggleable
         }
         this->pTarget = pTarget;
 
-        ULog::Get().println("Creating hook at %p", pTarget);
+        ULog::Get().dprintln("Creating hook at %p", pTarget);
         MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
         Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
 
@@ -333,6 +336,11 @@ public:
     inline virtual void DisableImpl() override
     {
         MH_DisableHook(pTarget);
+    }
+
+    inline EError GetError() const
+    {
+        return Error;
     }
 
     inline std::string GetErrorString() const
