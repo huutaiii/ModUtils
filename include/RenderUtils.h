@@ -1,6 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <cstdlib>
+#include <cstdint>
 
 #include "MathUtils.h"
 
@@ -8,13 +10,13 @@
 class UJitterGenerator
 {
 protected:
-	std::vector<glm::vec2> Sequence{ 0 };
+	std::vector<glm::vec2> Sequence;
 	uint32_t Offset; // index of first sample
 	uint32_t Distance; // distance between samples
 	uint32_t NumPhases;
 
 	// https://en.wikipedia.org/wiki/Halton_sequence
-	float HaltonSample(uint32_t index, uint32_t base)
+	inline float HaltonSample(uint32_t index, uint32_t base)
 	{
 		float f = 1.f;
 		float r = 0.f;
@@ -26,9 +28,8 @@ protected:
 		return r;
 	}
 
-	void Generate()
+	inline void Generate()
 	{
-		Sequence.resize(NumPhases);
 		for (int i = 0; i < NumPhases; ++i)
 		{
 			float x = HaltonSample(i * Distance + Offset, 2);
@@ -39,29 +40,30 @@ protected:
 
 public:
 
-	UJitterGenerator(uint32_t numPhases = 8, uint32_t offset = 1, uint32_t distance = 1)
+	inline UJitterGenerator(uint32_t numPhases = 8, uint32_t offset = 1, uint32_t distance = 1)
 		: NumPhases(numPhases), Offset(offset), Distance(distance)
 	{
+		Sequence = std::vector<glm::vec2>(static_cast<std::size_t>(numPhases));
 		Generate();
 	}
 
-	glm::vec2 Get(size_t index) const
+	inline glm::vec2 Get(size_t index) const
 	{
 		return Sequence[index % NumPhases];
 	}
 
-	const glm::vec2& operator[](size_t index) const
+	inline const glm::vec2& operator[](size_t index) const
 	{
 		return Sequence[index % NumPhases];
 	}
 
-	const uint32_t GetNumPhases() const { return NumPhases; }
+	inline const uint32_t GetNumPhases() const { return NumPhases; }
 
 	// calculates a recommended jitter phase count for use with temporal super sampling
 	// https://github.com/NVIDIA/DLSS/blob/v3.5.10/doc/DLSS_Programming_Guide_Release.pdf
 	inline static uint32_t CalcNumPhasesTSR(float targetHeight, float renderHeight, uint32_t baseCount = 8)
 	{
-		return baseCount * (uint32_t)pow2(targetHeight / renderHeight);
+		return glm::roundEven(baseCount * pow2(targetHeight / renderHeight));
 	}
 };
 
