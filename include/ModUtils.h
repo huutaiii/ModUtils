@@ -176,12 +176,12 @@ public:
     public:
         UMessage(EItemType type = EItemType::LOG_TYPE_INFO) : Type(type) {}
 
-        inline static std::string convert_utf8(const std::wstring& str)
+        static std::string convert_utf8(const std::wstring& str)
         {
             std::string out;
 
             static_assert(sizeof(wchar_t) == 2);
-            UErrorCode uError;
+            UErrorCode uError = U_ZERO_ERROR;
             int32_t outSize;
             u_strToUTF8(0, 0, &outSize, (UChar*)str.c_str(), str.size(), &uError);
 
@@ -194,6 +194,10 @@ public:
 
         ~UMessage()
         {
+            if (Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
+            {
+                return;
+            }
             std::wstring line;
             if (Type != EItemType::LOG_TYPE_PLAIN)
             {
@@ -241,7 +245,7 @@ public:
             }
 
             std::lock_guard lock(ULog::Get().file_mtx);
-            std::fstream file(FileName, std::ios_base::app);
+            std::fstream file(FileName, std::ios_base::app | std::ios_base::binary);
             file << convert_utf8(line) << std::endl;
             file.close();
         }
@@ -254,15 +258,17 @@ public:
 template<typename T>
 inline ULog::UMessage& ULog::UMessage::operator<<(T value)
 {
-    MsgStream << value;
+    if (!(Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG))
+    {
+        MsgStream << value;
+    }
     return *this;
 }
 
 template<>
 inline ULog::UMessage& ULog::UMessage::operator<<(std::string string)
 {
-    MsgStream << string.c_str();
-    return *this;
+    return *this << string.c_str();
 }
 
 inline std::string ULog::FileName = "unknown_module.log";
