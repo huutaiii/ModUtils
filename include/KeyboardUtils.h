@@ -8,7 +8,7 @@
 
 #include "ModUtils.h"
 
-class KeyConfig
+class UKeyConfig
 {
   protected:
 	// there must be a better way...
@@ -231,15 +231,8 @@ class KeyConfig
 		return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
 	}
 
-	inline static std::string trim(std::string s)
-	{
-		std::string out;
-		std::copy_if(s.begin(), s.end(), std::back_inserter(out), [](char c) { return !std::isspace(c); });
-		return out;
-	}
 
   public:
-	// for use in WNDPROC
 	inline static int GetKey(std::string keyName)
 	{
 		if (!keyName.size())
@@ -303,7 +296,6 @@ class KeyConfig
 		}
 	}
 
-	// for use with GetAsyncKeyState
 	inline static int GetModifier(std::string modifierKeyName)
 	{
 		if (modifierKeyName.empty())
@@ -357,59 +349,85 @@ class KeyConfig
 		return out;
 	}
 
-	struct HotKey
+};
+
+
+struct UHotKey
+{
+	int Key = 0;
+	std::vector<int> Modifiers = { 0 };
+
+	inline UHotKey(int Key = 0, std::vector<int> Modifiers = std::vector<int>())
+		: Key(Key), Modifiers(Modifiers)
 	{
-		int Key                    = 0;
-		std::vector<int> Modifiers = {0};
+	}
 
-		inline HotKey(int Key = 0, std::vector<int> Modifiers = std::vector<int>())
-			: Key(Key), Modifiers(Modifiers)
+	inline UHotKey(std::string s)
+	{
+		Key = 0;
+		Modifiers = std::vector<int>();
+
+		std::string ls(s);
+		// std::replace_if(
+		// 	ls.begin(), ls.end(), [](unsigned char c) { return !IsLetterOrNumber(c) && std::string("+").find(c) == std::string::npos; }, ' ');
+		auto trim = [](std::string s)
+			{
+				std::string out;
+				std::copy_if(s.begin(), s.end(), std::back_inserter(out), [](char c) { return !std::isspace(c); });
+				return out;
+			};
+
+		std::istringstream ss(ls);
+		std::vector<std::string> keys;
+		std::string token;
+		while (std::getline(ss, token, '+'))
 		{
+			keys.push_back(trim(token));
 		}
-		//inline HotKey(HotKey &o) = default;
-
-		inline HotKey(std::string s)
+		if (keys.empty())
 		{
-			Key       = 0;
-			Modifiers = std::vector<int>();
+			return;
+		}
 
-			std::string ls(s);
-			// std::replace_if(
-			// 	ls.begin(), ls.end(), [](unsigned char c) { return !IsLetterOrNumber(c) && std::string("+").find(c) == std::string::npos; }, ' ');
-
-			std::istringstream ss(ls);
-			std::vector<std::string> keys;
-			std::string token;
-			while (std::getline(ss, token, '+'))
-			{
-				keys.push_back(trim(token));
-			}
-
-			for (std::string mod : std::vector(keys.begin(), keys.end() - 1))
-			{
-				ULog::Get().dprintln(mod);
-				Modifiers.push_back(GetModifier(mod));
-			}
-			std::string keystr = keys.back();
-			ULog::Get().dprintln(keystr);
-			Key = ConvertLRKeys(GetKey(keystr));
+		for (std::string mod : std::vector(keys.begin(), keys.end() - 1))
+		{
+			ULog::Get().dprintln(mod);
+			Modifiers.push_back(UKeyConfig::GetModifier(mod));
+		}
+		std::string keystr = keys.back();
+		ULog::Get().dprintln(keystr);
+		Key = UKeyConfig::ConvertLRKeys(UKeyConfig::GetKey(keystr));
 
 #if (_DEBUG)
+		{
+			std::string logstr;
+			logstr += std::format("key: {}, modifiers: ", Key);
+			for (int& mod : Modifiers)
 			{
-				std::string logstr;
-				logstr += std::format("key: {}, modifiers: ", Key);
-				for (int &mod : Modifiers)
-				{
-					logstr += std::format("{} ", mod);
-				}
-				ULog::Get().dprintln(logstr);
+				logstr += std::format("{} ", mod);
 			}
+			ULog::Get().dprintln(logstr);
+		}
 #endif
+	}
+
+	inline bool IsPressed(UINT wpMsg, WPARAM wndprocparam)
+	{
+		if (!Key)
+		{
+			return false;
 		}
 
-		inline bool IsPressed(UINT wpMsg, WPARAM wndprocparam)
+		return (wpMsg == WM_KEYDOWN || wpMsg == WM_SYSKEYDOWN) && wndprocparam == Key && UKeyConfig::AreModifiersHeld(Modifiers);
+	}
+
+	inline bool IsPressedAsync()
+	{
+		if (!UKeyConfig::AreModifiersHeld(Modifiers))
 		{
-			return (wpMsg == WM_KEYDOWN || wpMsg == WM_SYSKEYDOWN) && wndprocparam == Key && AreModifiersHeld(Modifiers);
+			return false;
 		}
-	};
+		return (GetAsyncKeyState(Key) & 1) != 0;
+	}
 };
+
