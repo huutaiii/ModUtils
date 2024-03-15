@@ -165,10 +165,9 @@ public:
         MINHOOK_ERROR,
         MUTEX_ERROR,
     };
-    
+
 protected:
     EError Error;
-
     MH_STATUS MHError;
     DWORD WindowsAPIError;
 
@@ -236,7 +235,7 @@ protected:
         }
         this->pTarget = pTarget;
 
-        ULog::Get().println("Creating hook at %p", pTarget);
+        ULog::Get().dprintln("Creating hook at %p", pTarget);
         MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
         Error = (MHError == MH_OK) ? EError::SUCCESS : EError::MINHOOK_ERROR;
 
@@ -496,14 +495,23 @@ private:
 
 private:
 
-    inline void UHookRelativeIntermediate_Internal(std::vector<uint16_t> pattern, int offset, uintptr_t *pReturnAddress)
+    inline void ScanPattern(std::vector<uint16_t> pattern)
     {
         std::vector<void*> scan = MemPatternScan(nullptr, pattern, false, 1);
         if (scan.size())
         {
-            lpHook = (void*)(uintptr_t(scan[0]) + offset);
+            lpHook = (void*)(uintptr_t(scan[0]));
         }
+    }
+
+    inline void InitCommon(LPVOID target, int offset, uintptr_t *pReturnAddress)
+    {
+        lpHook = target;
         bCanHook = lpHook != nullptr;
+        if (bCanHook)
+        {
+            lpHook = (void*)(uintptr_t(lpHook) + offset);
+        }
         bUseCall = pReturnAddress == nullptr;
         if (!bUseCall)
         {
@@ -529,7 +537,8 @@ public:
     )
         : numBytes(numStolenBytes), lpDestination(destination), msg(msg), fnEnable(enable), fnDisable(disable), bExecuteOriginal(bExecuteOriginal)
     {
-        UHookRelativeIntermediate_Internal(signature, offset, pReturnAddress);
+        ScanPattern(signature);
+        InitCommon(lpHook, offset, pReturnAddress);
     }
 
     inline UHookInline(
@@ -541,7 +550,8 @@ public:
     )
         : numBytes(numStolenBytes), lpDestination(destination), msg(id)
     {
-        UHookRelativeIntermediate_Internal(signature, offset, nullptr);
+        ScanPattern(signature);
+        InitCommon(lpHook, offset, nullptr);
     }
 
     inline UHookInline(
@@ -554,7 +564,8 @@ public:
     )
         : numBytes(numStolenBytes), lpDestination(destination), msg(id), bExecuteOriginal(bExecuteOriginal)
     {
-        UHookRelativeIntermediate_Internal(signature, offset, nullptr);
+        ScanPattern(signature);
+        InitCommon(lpHook, offset, nullptr);
     }
 
     inline UHookInline(
@@ -567,7 +578,19 @@ public:
     )
         : msg(id), numBytes(numStolenBytes), lpDestination(destination)
     {
-        UHookRelativeIntermediate_Internal(signature, offset, pReturnAddress);
+        ScanPattern(signature);
+        InitCommon(lpHook, offset, pReturnAddress);
+    }
+
+    inline UHookInline(
+        std::string id,
+        LPVOID target,
+        size_t numStolenBytes,
+        LPVOID destination,
+        int offset = 0
+    ) : msg(id), numBytes(numStolenBytes), lpDestination(destination), lpHook(target)
+    {
+        InitCommon(lpHook, offset, nullptr);
     }
 
     inline const bool HasFoundSignature() const { return bCanHook; }
@@ -577,7 +600,7 @@ public:
 protected:
     inline virtual void EnableImpl() override
     {
-        if (!lpIntermediate)
+        if (!lpIntermediate && bCanHook)
         {
             Init();
         }

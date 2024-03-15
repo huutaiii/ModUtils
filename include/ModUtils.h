@@ -176,12 +176,12 @@ public:
     public:
         UMessage(EItemType type = EItemType::LOG_TYPE_INFO) : Type(type) {}
 
-        inline static std::string convert_utf8(const std::wstring& str)
+        static std::string convert_utf8(const std::wstring& str)
         {
             std::string out;
 
             static_assert(sizeof(wchar_t) == 2);
-            UErrorCode uError;
+            UErrorCode uError = U_ZERO_ERROR;
             int32_t outSize;
             u_strToUTF8(0, 0, &outSize, (UChar*)str.c_str(), str.size(), &uError);
 
@@ -194,6 +194,10 @@ public:
 
         ~UMessage()
         {
+            if (Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG)
+            {
+                return;
+            }
             std::wstring line;
             if (Type != EItemType::LOG_TYPE_PLAIN)
             {
@@ -241,8 +245,8 @@ public:
             }
 
             std::lock_guard lock(ULog::Get().file_mtx);
-            std::fstream file(FileName, std::ios_base::app);
-            file << convert_utf8(line).c_str() << std::endl;
+            std::fstream file(FileName, std::ios_base::app | std::ios_base::binary);
+            file << convert_utf8(line) << std::endl;
             file.close();
         }
 
@@ -254,15 +258,17 @@ public:
 template<typename T>
 inline ULog::UMessage& ULog::UMessage::operator<<(T value)
 {
-    MsgStream << value;
+    if (!(Type == EItemType::LOG_TYPE_DEBUG && !IS_DEBUG))
+    {
+        MsgStream << value;
+    }
     return *this;
 }
 
 template<>
 inline ULog::UMessage& ULog::UMessage::operator<<(std::string string)
 {
-    MsgStream << string.c_str();
-    return *this;
+    return *this << string.c_str();
 }
 
 inline std::string ULog::FileName = "unknown_module.log";
@@ -599,32 +605,26 @@ inline HMODULE LoadLibraryString(std::wstring libFileName)
 }
 
 // Tries to loads a DLL and shows an error popup when failed.
-// @param std::basic_string<TChar> filename: DLL path relative to current module
+// @param std::filesystem::path path: relative or absolute path to library
+// @param bool relativeToModule: whether the library path is relative to current module instead of the current process
 // @param HWND hwnd: window handle passed to MessageBox
 // @return HMODULE The return value of LoadLibraryA|LoadLibraryW
-template <typename TChar>
-inline HMODULE TryLoadLibrary(const std::basic_string<TChar> filename, HWND hwnd = NULL)
+inline HMODULE TryLoadLibrary(std::filesystem::path path, bool relativeToModule = true, HWND hwnd = NULL)
 {
-    std::filesystem::path pathThis(GetWinAPIString(GetModuleFileNameW, GetCurrentModule()));
-    HMODULE hModule = LoadLibraryString(pathThis.parent_path() / filename);
+    if (path.is_relative())
+    {
+        std::filesystem::path pathThis(GetWinAPIString(GetModuleFileNameW, relativeToModule ? GetCurrentModule() : NULL));
+        path = pathThis.parent_path() / path;
+    }
+    HMODULE hModule = LoadLibraryW(path.wstring().c_str());
     if (!hModule)
     {
         DWORD error = GetLastError();
-        std::wstring caption = pathThis.filename();
-        MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", std::wstring(filename.begin(), filename.end()).c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
+        std::wstring caption = std::filesystem::path(GetWinAPIString(GetModuleFileNameW, GetCurrentModule())).filename();
+        MessageBoxW(hwnd, std::format(L"Failed to load \"{}\"", path.filename().wstring().c_str()).c_str(), caption.c_str(), (hwnd ? MB_APPLMODAL : MB_SYSTEMMODAL) | MB_ICONERROR);
         SetLastError(error);
     }
     return hModule;
-}
-
-inline HMODULE TryLoadLibrary(const char* pfilename, HWND hwnd = NULL)
-{
-    return TryLoadLibrary(std::string(pfilename), hwnd);
-}
-
-inline HMODULE TryLoadLibrary(const WCHAR* pfilename, HWND hwnd = NULL)
-{
-    return TryLoadLibrary(std::wstring(pfilename), hwnd);
 }
 
 // does not contain a trailing backslash

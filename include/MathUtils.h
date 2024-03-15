@@ -5,9 +5,21 @@
 #include <cmath>
 #include <limits>
 
-constexpr float PI = 3.14159265359f;
-constexpr float SMALL_FLOAT = 0.0001f;
-constexpr float INTERP_MIN_DIST = 1e-8f;
+#ifndef PI
+#define PI ((float)(3.141592653589793f))
+#endif
+#ifndef SMALL_FLOAT
+#define SMALL_FLOAT ((float)(0.0001f))
+#endif
+#ifndef INTERP_MIN_DIST
+#define INTERP_MIN_DIST ((float)(1e-8f))
+#endif
+#ifndef DEG_TO_RAD
+#define DEG_TO_RAD ((float)(0.017453292519943295f))
+#endif
+#ifndef RAD_TO_DEG
+#define RAD_TO_DEG ((float)(57.29577951308232f))
+#endif
 
 #undef min
 #undef max
@@ -52,7 +64,6 @@ inline T pow4(T x) { return x * x * x * x; }
 template<typename T>
 inline T safediv(T x, T y) { return (x == 0 || y == 0) ? 0 : x / y; }
 
-// don't use this...
 template<typename Tlhs, typename Trhs>
 inline decltype(auto) safediv(Tlhs lhs, Trhs rhs) { return rhs == Trhs(0) ? (decltype(lhs * rhs))0 : (lhs / rhs); }
 
@@ -64,6 +75,12 @@ inline T min(T a, T b) { return a < b ? a : b; }
 
 template<typename T>
 inline T max(T a, T b) { return a > b ? a : b; }
+
+template<typename T>
+inline T min(T a) { return a; }
+
+template<typename T>
+inline T max(T a) { return a; }
 
 template<typename T, typename... Targs>
 inline T max(T first, Targs... args)
