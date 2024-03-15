@@ -242,7 +242,7 @@ public:
 
             std::lock_guard lock(ULog::Get().file_mtx);
             std::fstream file(FileName, std::ios_base::app);
-            file << convert_utf8(line) << std::endl;
+            file << convert_utf8(line).c_str() << std::endl;
             file.close();
         }
 
