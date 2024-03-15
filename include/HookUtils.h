@@ -155,14 +155,19 @@ public:
 // MinHook wrapper class
 class UMinHook : public UToggleable
 {
-    enum EError
+public:
+    enum class EError : int
     {
+        UNKNOWN = -1,
         SUCCESS = 0,
         PATTERN_NOT_FOUND,
         INVALID_POINTER,
         MINHOOK_ERROR,
         MUTEX_ERROR,
-    } Error;
+    };
+    
+protected:
+    EError Error;
 
     MH_STATUS MHError;
     DWORD WindowsAPIError;
@@ -176,7 +181,7 @@ class UMinHook : public UToggleable
     {
         if (!pTarget)
         {
-            Error = INVALID_POINTER;
+            Error = EError::INVALID_POINTER;
             return;
         }
 
@@ -187,7 +192,7 @@ class UMinHook : public UToggleable
         HANDLE mutex = CreateMutexA(NULL, FALSE, mtxName.c_str());
         if (!mutex)
         {
-            Error = MUTEX_ERROR;
+            Error = EError::MUTEX_ERROR;
             WindowsAPIError = GetLastError();
             return;
         }
@@ -203,7 +208,7 @@ class UMinHook : public UToggleable
         case WAIT_FAILED:
         case WAIT_TIMEOUT:
         default:
-            Error = MUTEX_ERROR;
+            Error = EError::MUTEX_ERROR;
             WindowsAPIError = GetLastError();
             return;
         }
@@ -233,9 +238,9 @@ class UMinHook : public UToggleable
 
         ULog::Get().println("Creating hook at %p", pTarget);
         MH_STATUS MHError = MH_CreateHook(pTarget, pDetour, (void**)ppTrampoline);
-        Error = (MHError == MH_OK) ? SUCCESS : MINHOOK_ERROR;
+        Error = (MHError == MH_OK) ? EError::SUCCESS : EError::MINHOOK_ERROR;
 
-        if (!Error)
+        if (static_cast<int>(Error) <= 0)
         {
             log.println("Created hook: %s %p (base+%#x)", ID.c_str(), pTarget, GetRelativeAddress(pTarget));
         }
@@ -257,7 +262,7 @@ class UMinHook : public UToggleable
         }
         else
         {
-            Error = PATTERN_NOT_FOUND;
+            Error = EError::PATTERN_NOT_FOUND;
         }
     }
 
@@ -302,7 +307,7 @@ public:
     {
         if (pTarget == nullptr)
         {
-            Error = INVALID_POINTER;
+            Error = EError::INVALID_POINTER;
         }
         else
         {
@@ -335,19 +340,24 @@ public:
         MH_DisableHook(pTarget);
     }
 
+    inline EError GetError() const
+    {
+        return Error;
+    }
+
     inline std::string GetErrorString() const
     {
         switch (Error)
         {
-        case SUCCESS:
+        case EError::SUCCESS:
             return "SUCCESS";
-        case PATTERN_NOT_FOUND:
+        case EError::PATTERN_NOT_FOUND:
             return "PATTERN_NOT_FOUND";
-        case INVALID_POINTER:
+        case EError::INVALID_POINTER:
             return "INVALID_POINTER";
-        case MINHOOK_ERROR:
+        case EError::MINHOOK_ERROR:
             return std::string("MINHOOK_ERROR") + "." + std::string(MH_StatusToString(MHError));
-        case MUTEX_ERROR:
+        case EError::MUTEX_ERROR:
             return std::format("MUTEX_ERROR.{}", WindowsAPIError);
         default:
             return "UNKNOWN_ERROR";
