@@ -649,21 +649,36 @@ struct UParamEnumWnd
 {
     HWND LastHWnd;
     std::wstring Title;
+    bool bUseClassName = false;
 };
 inline bool CheckWndText(HWND hwnd, UParamEnumWnd *enumInfo)
 {
-    // check if the target window can process messages and wait till it can
-    // however, this doesn't seem to work and the process hangs anyway
-    for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
+    if (enumInfo->bUseClassName)
     {
-        ULog::Get().dprintln("waiting for window to become responsive");
-        Sleep(4000);
+        std::wstring windowClass = GetWinAPIString(GetClassNameW, hwnd);
+        ULog::UMessage(ULog::EItemType::LOG_TYPE_DEBUG) << "window class: " << windowClass << " " << reinterpret_cast<LPVOID>(hwnd);
+        if (windowClass.find(enumInfo->Title) != std::wstring::npos)
+        {
+            enumInfo->LastHWnd = hwnd;
+            return true;
+        }
     }
-    ULog::Get().dprintln("hwnd %s %p", GetWinAPIString(GetWindowTextA, hwnd).c_str(), reinterpret_cast<LPVOID>(hwnd));
-    if (GetWinAPIString(GetWindowTextW, hwnd).find(enumInfo->Title) != std::wstring::npos)
+    else
     {
-        enumInfo->LastHWnd = hwnd;
-        return true;
+        // check if the target window can process messages and wait till it can
+        // however, this doesn't seem to work and the process hangs anyway
+        for (; /*IsHungAppWindow(hwnd) || */!SendMessageTimeoutW(hwnd, WM_NULL, NULL, NULL, SMTO_NORMAL, 1000, NULL);)
+        {
+            ULog::Get().dprintln("waiting for window to become responsive");
+            Sleep(4000);
+        }
+        std::wstring windowTitle = GetWinAPIString(GetWindowTextW, hwnd);
+        ULog::UMessage(ULog::EItemType::LOG_TYPE_DEBUG) << "window title: " << windowTitle << " " << reinterpret_cast<LPVOID>(hwnd);
+        if (windowTitle.find(enumInfo->Title) != std::wstring::npos)
+        {
+            enumInfo->LastHWnd = hwnd;
+            return true;
+        }
     }
     return false;
 }
@@ -691,14 +706,15 @@ inline BOOL CALLBACK EnumWndCallback(HWND hwnd, LPARAM param)
 // USE WITH CAUTION. This can cause any window in the current process to hang indefinitely if it's already unresponsive.
 // @return HWND Handle to the first window with a matching title
 // @param wstring title: can be an empty string, for which the function will return the first window belonging to the current process
-inline HWND FindWindowHandle(std::wstring title = L"")
+// @param bool useClassName: search for the window using class names instead of window titles
+inline HWND FindWindowHandle(std::wstring title = L"", bool useClassName = false)
 {
     static std::unordered_map<std::wstring, HWND> Results;
     if (title.size() && Results.contains(title))
     {
         return Results[title];
     }
-    UParamEnumWnd info(nullptr, title);
+    UParamEnumWnd info(nullptr, title, useClassName);
     EnumWindows(&EnumWndCallback, LPARAM(&info));
     Results[title] = info.LastHWnd;
     return info.LastHWnd;
